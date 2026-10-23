@@ -185,9 +185,13 @@ const TAKE_CAP=24, TAKE_KEY=APP+"-takes-v2";
 const takes=(()=>{ try{ const a=JSON.parse(localStorage.getItem(TAKE_KEY)||"[]"); return Array.isArray(a)?a.filter(t=>t&&Array.isArray(t.notes)):[]; }catch(e){ return []; } })();
 let takesVer=1;
 function saveTakes(){ takesVer++; srcCache.key=null; lmCache.key=null; try{ localStorage.setItem(TAKE_KEY,JSON.stringify(takes)); }catch(e){ setStatus("Could not save takes in this browser (storage full?). Export them now."); } }
-const audible = t => t.mode==="loop" && !t.muted && t.notes.length>0;
-const kindOf = inst => (LIVE[inst]||{}).fx || null;
-function fxFor(kind, inst){ return kind==="vocal" ? {kind, preset:state.vocalPreset, cfg:FX.clone(state.vocal)} : kind==="amp" ? (inst==="bass" ? {kind, preset:state.bassPreset, cfg:FX.clone(state.bassAmp)} : {kind, preset:state.ampPreset, cfg:FX.clone(state.amp)}) : null; }
+const audible = t => t.mode==="loop" && !t.muted && (t.kind==="audio" ? !!audioPCM.get(t.id) : t.notes.length>0);
+// audio inputs (mic / guitar / bass DI): recorded dry, played back through the chain set on the take
+const AIN = { mic:{label:"Mic (through the vocal chain)", fx:"vocal", part:"lead"}, gtrin:{label:"Guitar input (through the amp)", fx:"amp", part:"play"}, bassin:{label:"Bass input (through the bass amp)", fx:"amp", part:"play"} };
+const instLabel = i => ((LIVE[i]||AIN[i]||LIVE.sing).label.split(" (")[0]);
+const audioPCM = new Map(); // take id -> Float32Array (mono, 48 kHz), persisted in IndexedDB
+const kindOf = inst => (LIVE[inst]||AIN[inst]||{}).fx || null;
+function fxFor(kind, inst){ return kind==="vocal" ? {kind, preset:state.vocalPreset, cfg:FX.clone(state.vocal)} : kind==="amp" ? ((inst==="bass"||inst==="bassin") ? {kind, preset:state.bassPreset, cfg:FX.clone(state.bassAmp)} : {kind, preset:state.ampPreset, cfg:FX.clone(state.amp)}) : null; }
 function scopeStart(tk, tl){ if(tk.scope==="song") return {g0:0, len:tl.total*STEPS}; const s=tl.secs.find(x=>x.id===tk.scope); return s?{g0:s.start*STEPS, len:s.bars*STEPS, sec:s}:null; }
 // recipe transform: one pure function feeds live, WAV and MIDI. Sung melody is monophonic; instruments are polyphonic.
 function takeNotes(tk, st, tl){
@@ -207,13 +211,14 @@ function takeNotes(tk, st, tl){
   if(inst==="sing") for(let i=0;i<arr.length-1;i++) arr[i].len=Math.max(0.25,Math.min(arr[i].len, arr[i+1].pos-arr[i].pos));
   for(const n of arr) n.g=sc.g0+n.pos;
   return arr; }
-const takeLabel = t => `${t.name} · ${(LIVE[t.inst||"sing"]||LIVE.sing).label.split(" (")[0]} · ${t.scope==="song"?"full song":"section"} (${t.mode==="loop"&&!t.muted?"loop":t.muted?"muted":"silent"})`;
+const takeLabel = t => `${t.name} · ${instLabel(t.inst||"sing")} · ${t.scope==="song"?"full song":"section"} (${t.mode==="loop"&&!t.muted?"loop":t.muted?"muted":"silent"})`;
 let srcCache={key:null};
 function sources(st, tl, rec, all){ // melody + instrument sources placed on the song (audible ones for playback; every take for MIDI)
   const key=JSON.stringify([takesVer,st.recipe,st.keyRoot,st.chords,st.song,st.shape,st.vocal,st.vocalPreset,!!rec,!!all]);
   if(srcCache.key===key) return srcCache.v;
   const out=[], covered=new Set();
-  for(const tk of takes){ if(!all && !audible(tk)) continue; const ns=takeNotes(tk,st,tl); if(!ns.length) continue; const inst=tk.inst||"sing";
+  for(const tk of takes){ if(tk.kind==="audio"){ if(audible(tk) && tk.inst==="mic"){ if(tk.scope==="song") tl.secs.forEach(s=>covered.add(s.id)); else covered.add(tk.scope); } continue; }
+    if(!all && !audible(tk)) continue; const ns=takeNotes(tk,st,tl); if(!ns.length) continue; const inst=tk.inst||"sing";
     out.push({id:tk.id, take:tk, inst, part:inst==="sing"?"lead":"play", fx:tk.fx===undefined?fxFor(kindOf(inst),inst):tk.fx, notes:ns, label:takeLabel(tk)});
     if(inst==="sing" && audible(tk)){ if(tk.scope==="song") tl.secs.forEach(s=>covered.add(s.id)); else covered.add(tk.scope); } }
   if(!rec){ const ns=[]; for(const s of tl.secs) if(!covered.has(s.id)) for(const n of sketchSection(s,st,tl)) ns.push(Object.assign(n,{g:s.start*STEPS+n.pos}));
@@ -366,6 +371,7 @@ function scheduleStep(st, time){
   const tl=TL(), sd=60/state.bpm/4, evs = stepEvents(st, state, tl, {noLead:mode==="band", rec:mode==="rec"}), R=router();
   if(mode==="rec" && state.recClick && st%4===0) evs.push({part:"kit",src:"kit",note:42,dur:1,vel:st%16===0?0.5:0.3,click:true});
   for(const ev of evs){ voice(ctx, liveBufs, R(ev), ev, time, sd, true); if(!ev.click) midiSend(ev, time, sd); }
+  if(mode!=="band") scheduleAudioTakes(ctx, R, st, st===range.g0, time, sd, tl, true, mode==="rec"?state.loopSec:null);
   Object.assign(window.__monitorDesc, R.descs);
   if(st===range.g0){ passNo++; if(mode==="rec") recPasses.push({pass:passNo, time, sd, g0:range.g0, g1:range.g1, sel:state.loopSec, done:false}); }
   const B=tl.bars[Math.floor(st/STEPS)];
@@ -407,8 +413,10 @@ async function renderSong(o, noNorm){
   const oc=new OfflineAudioContext(2, D+N+TAIL, SR); await FX.ready(oc);
   const bufs=await decodeAll(oc), b=buildBus(oc, st.gains, false), sd=60/st.bpm/4, R=fxRouter(oc,b,st.bpm);
   let only=o.only||null; if(only&&o.dry) only=Object.assign({},only,{fx:null});
-  const opt={parts:o.only?[]:o.parts, noLead:!!o.noLead, only};
+  const opt={parts:o.only?[]:o.parts, noLead:!!o.noLead||!!(only&&only.take&&only.take.kind==="audio"), only};
+  const audioOK = o.only ? !!(o.only.take&&o.only.take.kind==="audio") : (!o.noLead && !o.parts);
   for(let s=0;s<bars*STEPS;s++){ const gg=(fromBar*STEPS+s)%(total*STEPS);
+    if(audioOK) scheduleAudioTakes(oc, R, gg, s===0, s*sd, sd, tl, false, null, o.only?o.only.take:null, o.dry, st);
     for(const ev of stepEvents(gg, st, tl, opt)){ if(o.dry) ev.fx=null; voice(oc, bufs, R(ev), ev, s*sd, sd, false); } }
   const buf=await oc.startRendering();
   const ch=[0,1].map(i=>{ const d=buf.getChannelData(i), x=new Float32Array(N); x.set(d.subarray(D,D+N)); for(let j=0;j<TAIL;j++) x[j%N]+=d[D+N+j]; return x; });
@@ -483,6 +491,8 @@ async function exportStemsBytes(o){ o=o||{}; const st=merged(o), tl=TL(), base=f
   for(const src of sources(state,tl,false,false)){ if(want&&!want.includes(src.id)) continue; const tag=src.id==="sketch"?"sketch-melody":slug(src.take.name+"-"+(src.inst==="sing"?"vocal":src.inst));
     await one(tag+(src.fx&&src.fx.cfg?"-processed":""),{only:src});
     if(dryToo && src.fx && src.fx.cfg) await one(tag+"-dry",{only:src,dry:true}); }
+  for(const tk of takes){ if(tk.kind!=="audio"||!audible(tk)||(want&&!want.includes(tk.id))) continue; const tag=slug(tk.name+"-"+tk.inst), only={id:tk.id,take:tk,inst:tk.inst,part:AIN[tk.inst].part,fx:tk.fx,notes:[]};
+    await one(tag+(tk.fx?"-processed":""),{only}); if(dryToo&&tk.fx) await one(tag+"-dry",{only,dry:true}); }
   return {files:fl, zip:zipStore(fl), name:`${base}-stems.zip`}; }
 function peakOf(r){ let pk=0; for(const d of r.ch) for(let i=0;i<r.N;i++){ const a=Math.abs(d[i]); if(a>pk) pk=a; } return pk; }
 
@@ -587,8 +597,9 @@ function finishPass(p){ p.done=true; const hs=passNotes.get(p.pass)||[], L=p.g1-
   for(const h of hs){ if(h.len===null){ h.len=+(L-h.pos).toFixed(4); for(const [k,v] of openNotes) if(v===h) openNotes.delete(k); } h.len=Math.min(h.len,L-h.pos); }
   const tl=TL(), scope=p.sel>=0&&tl.secs[p.sel]?tl.secs[p.sel].id:"song", by=new Map();
   for(const h of hs) (by.get(h.inst)||by.set(h.inst,[]).get(h.inst)).push({pos:h.pos,len:h.len,vel:h.vel,note:h.note,syl:h.syl,text:h.text});
-  for(const [inst,ns] of by) addTake(ns,inst,scope,"played"); }
-function recTick(){ if(!ctx) return; for(const p of recPasses) if(!p.done && ctx.currentTime > p.time + (p.g1-p.g0)*p.sd + 0.03) finishPass(p); }
+  for(const [inst,ns] of by) addTake(ns,inst,scope,"played");
+  if(inputArmed()) audioPasses.push({p, scope}); flushAudioPasses(false); }
+function recTick(){ if(!ctx) return; flushAudioPasses(false); for(const p of recPasses) if(!p.done && ctx.currentTime > p.time + (p.g1-p.g0)*p.sd + 0.03) finishPass(p); }
 function addTake(notes, inst, scope, src){
   inst=inst||"sing"; scope=scope||"song";
   if(takes.length>=TAKE_CAP){ setStatus(`Take limit (${TAKE_CAP}) reached, this pass was not kept. Export or delete takes to record more.`); return null; }
@@ -598,11 +609,11 @@ function addTake(notes, inst, scope, src){
   takes.push(tk); saveTakes(); renderTakes(); paintTimeline(); return tk; }
 async function startRec(){
   await ensureCtx(); if(!liveBufs) return; stop();
-  recPasses=[]; passNotes=new Map(); openNotes=new Map(); passSyl.clear(); range=rangeFor(state.loopSec); pendingRange=null;
+  recPasses=[]; passNotes=new Map(); openNotes=new Map(); passSyl.clear(); range=rangeFor(state.loopSec); pendingRange=null; audioPasses=[]; recChunks=[]; if(inputArmed()) recNode.port.postMessage(true);
   bus.master.gain.setValueAtTime(1, ctx.currentTime);
   const bd=4*60/state.bpm, T0=ctx.currentTime+0.15+bd;
   for(let i=0;i<4;i++) voice(ctx, liveBufs, bus.chairs.kit, {src:"kit",note:i?42:38,dur:1,vel:i?0.6:0.85}, T0-bd+i*bd/4, 60/state.bpm/4, true); // count-in
-  mode="rec"; nextStepTime=T0; g=range.g0; stepLog.length=0; playing=true; passNo=0; ui.bpm.disabled=true;
+  window.__recT0=T0; mode="rec"; nextStepTime=T0; g=range.g0; stepLog.length=0; playing=true; passNo=0; ui.bpm.disabled=true;
   timerId=setInterval(scheduler, LOOKAHEAD_MS); requestAnimationFrame(draw); paintDock(); paintNext();
   const where=state.loopSec>=0?TL().secs[state.loopSec].label:"the full song";
   setStatus(`Recording ${where} on ${LIVE[state.liveInst].label.split(" (")[0]}: one bar count-in, then play. Every pass becomes a new take. Press Stop when done.`);
@@ -610,6 +621,7 @@ async function startRec(){
 function finishRec(stopAt){
   for(const [k] of [...openNotes]) recNoteOff(k,stopAt);
   for(const p of recPasses) if(!p.done && stopAt>p.time) finishPass(p);
+  if(recNode) recNode.port.postMessage(false); setTimeout(()=>{ flushAudioPasses(true); recChunks=[]; },400);
   recPasses=[]; passSyl.clear(); ui.bpm.disabled=false; paintNext(); setStatus(takes.length?`${takes.length} take${takes.length>1?"s":""} saved. Press ▶ Song to hear them with the band.`:"Nothing recorded. Press ● Record and play after the count-in.");
 }
 
@@ -625,6 +637,65 @@ async function applySink(){ if(!ctx||!sinkOK()) return; const note=document.getE
   try{ const want=state.audioOut||""; if((typeof ctx.sinkId==="string"?ctx.sinkId:"")!==want) await ctx.setSinkId(want); note.textContent = state.audioOut ? "Playing through the selected output." : "Playing through the system default output."; }
   catch(e){ note.textContent="Could not switch output ("+e.name+"); staying on the system default."; state.audioOut=""; save(); document.getElementById("audioOut").value=""; } }
 if(navigator.mediaDevices&&navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange",listOutputs);
+
+// ---------- audio inputs: mic and guitar/bass hook-up. Recorded DRY and sample-aligned to the grid, played back through the take's chain ----------
+const idbP = (()=>{ let p=null; return ()=> p || (p=new Promise((res,rej)=>{ const r=indexedDB.open(APP+"-audio",1); r.onupgradeneeded=()=>r.result.createObjectStore("pcm"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); })); })();
+async function idb(op, id, val){ try{ const db=await idbP(); return await new Promise((res,rej)=>{ const tx=db.transaction("pcm",op==="get"?"readonly":"readwrite"), st=tx.objectStore("pcm");
+  const r = op==="put" ? st.put(val,id) : op==="get" ? st.get(id) : st.delete(id); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }catch(e){ return null; } }
+const audioLoad = Promise.all(takes.filter(t=>t.kind==="audio").map(async t=>{ const a=await idb("get",t.id); if(a) audioPCM.set(t.id, a instanceof Float32Array?a:new Float32Array(a)); }));
+let inStream=null, inSrc=null, inGain=null, inAn=null, recNode=null, monGate=null, monKey="", recChunks=[], audioPasses=[];
+const inputArmed = () => !!(inGain && recNode);
+const REC_SRC=`class R extends AudioWorkletProcessor{constructor(){super();this.on=false;this.buf=new Float32Array(2048);this.n=0;this.f0=0;this.port.onmessage=e=>{this.on=e.data;this.n=0;};}
+process(ins){const x=ins[0]&&ins[0][0]; if(this.on&&x){ if(this.n===0) this.f0=currentFrame; this.buf.set(x,this.n); this.n+=x.length; if(this.n>=2048){ this.port.postMessage({f:this.f0,d:this.buf.slice(0,this.n)}); this.n=0; } } return true;}}
+registerProcessor("wf-rec",R);`;
+function inputComp(){ // seconds between "the grid hit the speaker" and "the sound you played reached the recorder"
+  if(!ctx) return 0; let s=0; if(state.latAuto!==false){ s+=(ctx.outputLatency||0)+(ctx.baseLatency||0); const tr=inStream&&inStream.getAudioTracks()[0], st=tr&&tr.getSettings?tr.getSettings():{}; s+=st.latency||0; }
+  return s+(state.latNudge||0)/1000; }
+async function connectInput(stream){
+  await ensureCtx(); disconnectInput(true); inStream=stream;
+  if(!recNode){ const url=URL.createObjectURL(new Blob([REC_SRC],{type:"application/javascript"})); await ctx.audioWorklet.addModule(url); }
+  inSrc=ctx.createMediaStreamSource(stream); inGain=ctx.createGain(); inGain.gain.value=dbLin(state.inTrim||0); inAn=ctx.createAnalyser(); inAn.fftSize=1024;
+  recNode=recNode||new AudioWorkletNode(ctx,"wf-rec",{numberOfInputs:1,numberOfOutputs:1,channelCount:1,channelCountMode:"explicit"});
+  recNode.port.onmessage=e=>recChunks.push(e.data); const sink=ctx.createGain(); sink.gain.value=0; recNode.connect(sink); sink.connect(ctx.destination);
+  inSrc.connect(inGain); inGain.connect(inAn); inGain.connect(recNode); monGate=ctx.createGain(); monGate.gain.value=state.inputMon?1:0; inGain.connect(monGate); monKey=""; routeMonitor();
+  paintInput(); requestAnimationFrame(meter); }
+function disconnectInput(keepNode){ if(inStream&&!keepNode) inStream.getTracks().forEach(t=>t.stop()); try{ inSrc&&inSrc.disconnect(); inGain&&inGain.disconnect(); monGate&&monGate.disconnect(); }catch(e){}
+  if(!keepNode){ inStream=null; inSrc=null; inGain=null; } paintInput(); }
+function routeMonitor(){ if(!monGate||!ctx) return; const fx=liveChainCfg(state.inputType), k=state.inputType+JSON.stringify(fx); if(k===monKey) return; monKey=k;
+  try{ monGate.disconnect(); }catch(e){} monGate.connect(liveDest(state.inputType)); }
+setInterval(()=>{ if(monGate) routeMonitor(); },400);
+function meter(){ if(!inAn) return; const a=new Float32Array(inAn.fftSize); inAn.getFloatTimeDomainData(a); let pk=0; for(const v of a) pk=Math.max(pk,Math.abs(v));
+  const m=document.getElementById("inputMeter"); if(m) m.value=Math.max(0,1+Math.log10(Math.max(1e-6,pk))/3); requestAnimationFrame(meter); }
+function sliceFrames(f0, L){ const out=new Float32Array(L); let got=0; for(const c of recChunks){ const a=Math.max(f0,c.f), b=Math.min(f0+L,c.f+c.d.length); if(b>a){ out.set(c.d.subarray(a-c.f,b-c.f),a-f0); got+=b-a; } } return {out,got}; }
+function flushAudioPasses(force){ if(!audioPasses.length) return; const last=recChunks.length?recChunks[recChunks.length-1]:null, lastF=last?last.f+last.d.length:0;
+  audioPasses=audioPasses.filter(({p,scope})=>{ const comp=inputComp(), f0=Math.round((p.time+comp)*SR), L=Math.round((p.g1-p.g0)*p.sd*SR);
+    if(lastF<f0+L && !force) return true;
+    const {out,got}=sliceFrames(f0,L); let pk=0; for(let i=0;i<L;i++) pk=Math.max(pk,Math.abs(out[i]));
+    if(got>SR*0.1 && pk>0.002){ const tk=addTake([],state.inputType,scope,"input"); if(tk){ tk.kind="audio"; tk.frames=L; tk.comp_ms=+(comp*1000).toFixed(2); tk.f0=f0; audioPCM.set(tk.id,out); idb("put",tk.id,out); saveTakes(); renderTakes(); } }
+    return false; }); }
+const abufCache=new WeakMap();
+function scheduleAudioTakes(c, R, gg, rangeStart, time, sd, tl, track, _sel, onlyTake, dry, st){ st=st||state;
+  for(const tk of takes){ if(tk.kind!=="audio") continue; if(onlyTake ? tk!==onlyTake : !audible(tk)) continue; const A=AIN[tk.inst]||AIN.mic; if(st.mutes[A.part]) continue;
+    const pcm=audioPCM.get(tk.id); if(!pcm) continue; const sc=scopeStart(tk,tl); if(!sc||gg<sc.g0||gg>=sc.g0+sc.len) continue; if(gg!==sc.g0&&!rangeStart) continue;
+    let m=abufCache.get(c); if(!m){ m=new Map(); abufCache.set(c,m); } let b=m.get(tk.id); if(!b){ b=c.createBuffer(1,pcm.length,SR); b.copyToChannel(pcm,0); m.set(tk.id,b); }
+    const off=(gg-sc.g0)*sd, dur=Math.min(b.duration-off,(sc.len-(gg-sc.g0))*sd); if(dur<=0.01) continue;
+    const s=c.createBufferSource(); s.buffer=b; const gn=c.createGain(); gn.gain.setValueAtTime(0,time); gn.gain.linearRampToValueAtTime(tk.gain||1,time+0.003); gn.gain.setValueAtTime(tk.gain||1,time+dur-0.004); gn.gain.linearRampToValueAtTime(0,time+dur);
+    s.connect(gn); gn.connect(R({part:A.part, fx:dry?null:tk.fx, srcId:tk.id})); s.start(time,off); s.stop(time+dur+0.01);
+    if(track){ active.add(s); s.onended=()=>active.delete(s); } } }
+async function calibrateInput(target){ // loop-back test: clicks out, find them on the input, store the measured offset as the nudge
+  if(!inputArmed()) throw new Error("Connect an input first"); target=target||ctx.destination; const was=recChunks; recChunks=[]; recNode.port.postMessage(true);
+  const t0=ctx.currentTime+0.3, gap=0.3, n=8; for(let k=0;k<n;k++){ const t=t0+k*gap, o=ctx.createOscillator(), gn=ctx.createGain(); o.frequency.value=1500; gn.gain.setValueAtTime(0,t); gn.gain.setValueAtTime(0.5,t); gn.gain.setValueAtTime(0,t+0.004); o.connect(gn); gn.connect(target); o.start(t); o.stop(t+0.01); }
+  await new Promise(r=>setTimeout(r,(t0+n*gap+0.4-ctx.currentTime)*1000)); recNode.port.postMessage(false);
+  const lags=[]; for(let k=0;k<n;k++){ const f=Math.round((t0+k*gap)*SR), {out}=sliceFrames(f, Math.round(0.25*SR)); let pk=0; for(const v of out) pk=Math.max(pk,Math.abs(v)); if(pk<0.01) continue;
+    const i=out.findIndex(v=>Math.abs(v)>pk*0.5); if(i>=0) lags.push(i/SR); }
+  recChunks=was; if(lags.length<5){ setStatus("Calibration could not hear the clicks. Turn the speakers up or hold the mic near them, then try again."); return null; }
+  lags.sort((a,b)=>a-b); const lag=lags[lags.length>>1], autoPart=inputComp()-(state.latNudge||0)/1000;
+  state.latNudge=Math.round((lag-autoPart)*1000*10)/10; save(); const nu=document.getElementById("latNudge"); if(nu) nu.value=state.latNudge; paintInput();
+  setStatus(`Calibrated: input arrives ${(lag*1000).toFixed(1)} ms late, takes are shifted back by that much.`); return lag; }
+function paintInput(){ const b=document.getElementById("inputBtn"), n=document.getElementById("inputNote"); if(!b) return;
+  b.textContent = inGain ? "Disconnect input" : "Connect input"; n.textContent = inGain ? `Input connected (${(inStream&&inStream.getAudioTracks()[0]||{}).label||"device"}). ● Record now also records it. Alignment offset ${(inputComp()*1000).toFixed(1)} ms.` : "Not connected. WordFour only uses your mic or interface after you press Connect."; }
+async function listInputs(){ const sel=document.getElementById("inputDev"); if(!sel) return; let devs=[]; try{ devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput"); }catch(e){}
+  sel.innerHTML='<option value="">Default input</option>'+devs.filter(d=>d.deviceId&&d.deviceId!=="default").map((d,i)=>`<option value="${esc(d.deviceId)}">${esc(d.label||"Input "+(i+1))}</option>`).join(""); sel.value=state.inputDev&&devs.some(d=>d.deviceId===state.inputDev)?state.inputDev:""; }
 
 // ---------- UI ----------
 const ui={}; ["audioOut","audioOutNote","bpm","key","chords","chordErr","recClick","layer","lyrics","shape","sketchBtn","nextSyl","karaoke","timeline","songInfo","why","editor","editToggle",
@@ -736,7 +807,7 @@ function fxSelect(t){ const k=kindOf(t.inst||"sing"); if(!k) return "";
   return `<select data-act="fx" aria-label="${k==="vocal"?"Vocal chain":"Amp"} for ${esc(t.name)}"><option value="dry"${cur==="dry"?" selected":""}>Dry (no ${k==="vocal"?"chain":"amp"})</option>${Object.entries(P).map(([id,p])=>`<option value="${id}"${cur===id?" selected":""}>${esc(p.name)}</option>`).join("")}<option value="panel">Use the panel settings now</option></select>`; }
 function renderTakes(){ const tl=TL();
   ui.takes.innerHTML = takes.length ? takes.map((t,i)=>{ const sc=t.scope==="song"?"full song":((tl.secs.find(s=>s.id===t.scope)||{label:"(removed section)"}).label);
-    return `<li class="take${audible(t)?" on":""}" data-i="${i}"><b>${esc(t.name)}</b> <small>${esc((LIVE[t.inst||"sing"]||LIVE.sing).label.split(" (")[0])} · ${esc(sc)} · ${t.notes.length} notes</small>
+    return `<li class="take${audible(t)?" on":""}" data-i="${i}"><b>${esc(t.name)}</b> <small>${esc(instLabel(t.inst||"sing"))} · ${esc(sc)} · ${t.kind==="audio"?(t.frames/SR).toFixed(1)+" s audio"+(audioPCM.get(t.id)?"":" (missing)"):t.notes.length+" notes"}</small>
      <select data-act="mode"><option value="loop"${t.mode==="loop"?" selected":""}>Plays</option><option value="silent"${t.mode!=="loop"?" selected":""}>Silent</option></select>
      ${fxSelect(t)}<button data-act="del" aria-label="Delete ${esc(t.name)}">✕</button></li>`; }).join("") : `<li class="empty">No takes yet. Press ● Record, or ✨ Sketch a melody for the selected section.</li>`;
   ui.takeInfo.textContent = takes.length ? `${takes.filter(audible).length} of ${takes.length} takes playing. Sections without a sung take use the sketch melody.` : ""; }
@@ -745,8 +816,8 @@ ui.takes.addEventListener("change",e=>{ const li=e.target.closest(".take"); if(!
   if(a==="fx"){ const k=kindOf(t.inst||"sing"), v=e.target.value; t.fx = v==="dry" ? null : v==="panel" ? fxFor(k,t.inst) : {kind:k,preset:v,cfg:FX.clone((k==="vocal"?FX.VOCAL_PRESETS:FX.AMP_PRESETS)[v])}; }
   saveTakes(); renderTakes(); });
 ui.takes.addEventListener("click",e=>{ if(e.target.dataset.act!=="del") return; const i=+e.target.closest(".take").dataset.i, t=takes[i];
-  if(!confirm(`Delete ${t.name}? This can't be undone.`)) return; takes.splice(i,1); saveTakes(); renderTakes(); });
-document.getElementById("clearTakes").addEventListener("click",()=>{ if(!takes.length||!confirm(`Clear all ${takes.length} takes? This can't be undone.`)) return; takes.length=0; saveTakes(); renderTakes(); });
+  if(!confirm(`Delete ${t.name}? This can't be undone.`)) return; if(t.kind==="audio"){ audioPCM.delete(t.id); idb("delete",t.id); } takes.splice(i,1); saveTakes(); renderTakes(); });
+document.getElementById("clearTakes").addEventListener("click",()=>{ if(!takes.length||!confirm(`Clear all ${takes.length} takes? This can't be undone.`)) return; for(const t of takes) if(t.kind==="audio"){ audioPCM.delete(t.id); idb("delete",t.id); } takes.length=0; saveTakes(); renderTakes(); });
 // ---- FX panels: preset + every stage on/off with big knobs ----
 const FXP = { vocalFx:{key:"vocal",pkey:"vocalPreset",stages:FX.VOCAL_STAGES,presets:FX.VOCAL_PRESETS},
   ampFx:{key:"amp",pkey:"ampPreset",stages:FX.AMP_STAGES,presets:FX.AMP_PRESETS}, bassFx:{key:"bassAmp",pkey:"bassPreset",stages:FX.AMP_STAGES,presets:FX.AMP_PRESETS} };
@@ -801,6 +872,18 @@ ui.recClick.addEventListener("change",()=>{ state.recClick=ui.recClick.checked; 
 ui.layer.addEventListener("change",()=>{ state.layer=ui.layer.checked; save(); });
 ui.midiTransport.addEventListener("change",()=>{ state.midiTransport=ui.midiTransport.checked; save(); });
 ui.midiIn.addEventListener("change",()=>{ state.midiIn=ui.midiIn.value; save(); refreshMidi(); });
+(()=>{ const $=id=>document.getElementById(id), it=$("inputType"), dv=$("inputDev"), tr=$("inputTrim"), mo=$("inputMon"), la=$("latAuto"), nu=$("latNudge");
+  it.value=state.inputType||"mic"; state.inputType=it.value; tr.value=state.inTrim||0; mo.checked=!!state.inputMon; la.checked=state.latAuto!==false; nu.value=state.latNudge||0;
+  it.addEventListener("change",()=>{ state.inputType=it.value; save(); routeMonitor(); });
+  dv.addEventListener("change",async()=>{ state.inputDev=dv.value; save(); if(inGain) $("inputBtn").click(), $("inputBtn").click(); });
+  tr.addEventListener("input",()=>{ state.inTrim=+tr.value; save(); if(inGain) inGain.gain.value=dbLin(state.inTrim); });
+  mo.addEventListener("change",()=>{ state.inputMon=mo.checked; save(); if(monGate) monGate.gain.setTargetAtTime(mo.checked?1:0,ctx.currentTime,0.01); });
+  la.addEventListener("change",()=>{ state.latAuto=la.checked; save(); paintInput(); }); nu.addEventListener("change",()=>{ state.latNudge=+nu.value||0; save(); paintInput(); });
+  $("inputBtn").addEventListener("click",async()=>{ if(inGain){ disconnectInput(); return; }
+    try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:state.inputDev?{exact:state.inputDev}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});
+      await connectInput(s); listInputs(); }catch(e){ $("inputNote").textContent="Could not open the input: "+e.message; } });
+  $("calBtn").addEventListener("click",()=>calibrateInput().catch(e=>setStatus(e.message)));
+  listInputs(); audioLoad.then(()=>renderTakes()); })();
 ui.midiOut.addEventListener("change",()=>{ state.midiOut=ui.midiOut.value; save(); refreshMidi(); });
 document.getElementById("audioOut").addEventListener("change",e=>{ state.audioOut=e.target.value; save(); applySink(); });
 document.getElementById("chairs").addEventListener("input",e=>{ const m=e.target.dataset.mute, gg=e.target.dataset.gain;
@@ -827,7 +910,7 @@ document.getElementById("licOff").onclick=async()=>{ if(lic.key&&lic.instance&&c
 { const buy=document.getElementById("buy"); if(LEMON.checkoutUrl){ buy.href=LEMON.checkoutUrl; buy.textContent="Buy WordFour · "+LEMON.price; } else { buy.removeAttribute("href"); buy.setAttribute("aria-disabled","true"); buy.textContent="Checkout opening soon · "+LEMON.price; } }
 if(lic.valid&&lic.key) validateKey(lic.key,lic.instance).then(v=>{ lic.valid=v; lic.checked=Date.now(); saveLic(); licUI(); }).catch(()=>{});
 if(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)) document.querySelectorAll(".ios").forEach(e=>e.hidden=false);
-window.__wordfour = { state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
+window.__wordfour = { setInputStream:s=>connectInput(s), calibrateInput, inputComp, audioPCM, get recChunks(){return recChunks;}, AIN, state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
   start:(m,f)=>start(m,f), stop, startRec, files, takes, undo, buildSong:(k)=>{ buildSong(k); songChanged(); }, resuggest:()=>{ snap(); resuggest(true); }, setLoop, FX, SONG, splitWord,
   liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
   get undoDepth(){return undoStack.length;}, get sustain(){return sustain;}, get playing(){return playing;}, get mode(){return mode;}, get ctx(){return ctx;}, get missing(){return [...missing];}, get lic(){return lic;}, get bus(){return bus;} };

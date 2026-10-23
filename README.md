@@ -18,3 +18,12 @@
 - **Price: $19 one-time** (Lemon Squeezy license key). The free demo plays, records and exports MIDI and the sheet for the whole song. WAV and stems cover the first 2 sections until you unlock. Checkout is configured in `LEMON` in `app.js`; those values are placeholders until the product exists.
 
 Static HTML, CSS and JS (`fx.js`, `song.js`, `app.js`) with no framework, auth or database. Run it with `python3 -m http.server`. Tests are in `qa/` (Playwright, Python): `s9.py` covers the 7 engine checks, and `v2.py` covers sections, moves, editing, feels, exports, instruments and FX. Code is MIT; the samples keep their own licenses.
+
+## Mic and guitar input (aligned audio takes)
+
+- In **More → Mic / guitar in**, choose what you plug in: **Mic → vocal chain**, **Guitar → amp** or **Bass → bass amp**. Pick the device and press **Connect input**. The browser only asks for the mic after you press it. Echo cancellation, noise suppression and auto gain are all off, so you get a clean DI or mic signal.
+- You get a level meter, a trim control and a **Hear yourself** monitor. The monitor runs through the live chain, so use headphones with it.
+- **Calibrate** plays 8 clicks and listens for them on the input. It then stores the round-trip offset as the **Nudge**. **Auto latency** adds the browser's reported output and input latency.
+- When an input is connected, **● Record** also records it for every pass of the loop (one section or the full song). Each pass becomes an audio take, cut to the exact pass length, shifted by the offset and saved **dry** in your browser (IndexedDB, nothing is uploaded). The vocal chain or amp is applied on playback, so you can change presets after recording. Live playback and offline export use the same chain.
+- Audio takes play in the live mix, the WAV export and the stems (processed + dry). A mic take replaces the sketch melody for the sections it covers. Delete a take or clear all takes to remove its audio.
+- Test: `python3 qa/ain.py URL out.json` sends clicks at grid times through a MediaStream and checks the take length, steadiness, on-grid error after calibration and stem alignment.
