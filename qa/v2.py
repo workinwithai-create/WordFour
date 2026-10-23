@@ -177,10 +177,16 @@ async def main():
       for(const [kind,cfg] of [['vocal',FX.VOCAL_PRESETS.warm_rnb],['amp',FX.AMP_PRESETS.crunch]]){
         const oc=new OfflineAudioContext(2,N,SR); await FX.ready(oc); const ch=FX.build(oc,kind,cfg,92,oc.destination); const s=oc.createBufferSource(); s.buffer=sig(oc); s.connect(ch.input); s.start(0);
         const off=(await oc.startRendering()).getChannelData(0).slice();
-        await FX.ready(ac); const cap=new Float32Array(N+SR); let k=0, started=false; const sp=ac.createScriptProcessor(4096,2,2), mute=ac.createGain(); mute.gain.value=0; sp.connect(mute); mute.connect(ac.destination);
-        const ch2=FX.build(ac,kind,cfg,92,sp); sp.onaudioprocess=e=>{ const x=e.inputBuffer.getChannelData(0); if(!started){ for(let i=0;i<x.length;i++) if(Math.abs(x[i])>1e-5){ started=true; break; } } if(started) for(let i=0;i<x.length&&k<cap.length;i++) cap[k++]=x[i]; };
-        const s2=ac.createBufferSource(); s2.buffer=sig(ac); s2.connect(ch2.input); s2.start(ac.currentTime+0.1);
-        await new Promise(r=>setTimeout(r,3200)); sp.disconnect(); ch2.dispose&&ch2.dispose();
+        await FX.ready(ac); const cap=new Float32Array(N+SR); let k=0;
+        if(!window.__capReady){ const src="class C extends AudioWorkletProcessor{process(i){const x=i[0]&&i[0][0]; if(x) this.port.postMessage({f:currentFrame,d:x.slice()}); return true;}} registerProcessor('qa-cap',C);";
+          await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([src],{type:'application/javascript'}))); window.__capReady=true; }
+        // frame-stamped capture on the audio thread (a ScriptProcessor drops blocks when the box is busy)
+        const wn=new AudioWorkletNode(ac,'qa-cap',{numberOfInputs:1,numberOfOutputs:1,channelCount:2,channelCountMode:'explicit'}), mute=ac.createGain(); mute.gain.value=0; wn.connect(mute); mute.connect(ac.destination);
+        const chunks=[]; wn.port.onmessage=e=>chunks.push(e.data);
+        const ch2=FX.build(ac,kind,cfg,92,wn); const s2=ac.createBufferSource(); s2.buffer=sig(ac); s2.connect(ch2.input); const tS=ac.currentTime+0.1; s2.start(tS);
+        await new Promise(r=>setTimeout(r,3200)); wn.disconnect(); ch2.dispose&&ch2.dispose();
+        const f0=Math.round(tS*SR); for(const c of chunks){ for(let i=0;i<c.d.length;i++){ const j=c.f+i-f0; if(j>=0&&j<cap.length){ cap[j]=c.d[i]; k=Math.max(k,j+1); } } }
+        { const a=cap.findIndex(v=>Math.abs(v)>1e-5); if(a>0){ cap.copyWithin(0,a); k-=a; } }
         // align (live capture starts at the first non-silent block), then compare
         let best=0,bv=-1e9; const a0=off.findIndex(v=>Math.abs(v)>1e-5);
         for(let L=-4096;L<=4096;L++){ let c=0; for(let i=SR*0.2;i<SR*0.2+8192;i+=2){ const j=i-a0+L; if(j>=0&&j<k) c+=off[i]*cap[j]; } if(c>bv){bv=c;best=L;} }

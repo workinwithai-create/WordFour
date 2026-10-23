@@ -27,14 +27,17 @@
   </section>
 
   <p class="eyebrow">2 · The arrangement <small id="songInfo"></small></p>
-  <div class="timeline" id="timeline" role="list" aria-label="Song timeline: click a section"></div>
+  <div class="timeline" id="timeline" role="list" aria-label="Song timeline: click a section to move the playhead there"></div>
   <div class="row inputs tlbar">
     <button class="mini" id="editToggle" aria-expanded="false">✎ Edit section</button>
     <button class="mini" id="resuggest" title="New suggestions; anything you locked stays">↻ Re-suggest</button>
     <button class="mini" id="undoBtn">↶ Undo</button>
     <button class="mini" id="rebuild">Find sections again</button>
-    <label>Loop <select id="loopSel"></select></label>
-    <button class="mini" id="playSec">▶ Loop this section</button>
+    <button class="mini" id="playTop" title="Play every section in order, start to finish">▶ Play whole song</button>
+    <button class="mini" id="toTop" title="Move the playhead back to the first section">⏮ Top</button>
+    <label class="chk"><span><input type="checkbox" id="loopSecChk" /> Loop selected section</span></label>
+    <label class="chk"><span><input type="checkbox" id="loopSong" /> Loop song at the end</span></label>
+    <small id="playWhere" class="status"></small>
   </div>
   <div class="why" id="why"></div>
   <div class="editor" id="editor" hidden></div>

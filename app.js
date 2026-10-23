@@ -108,6 +108,8 @@ const DEFAULT = { bpm:92, keyRoot:9, chords:"Am F C G", groove:"porch", recipe:"
 const state = Object.assign({}, DEFAULT, (()=>{ try{ return JSON.parse(localStorage.getItem(APP+"-v2")||"null") || {}; }catch(e){ return {}; } })());
 state.mutes = Object.assign({}, DEFAULT.mutes, state.mutes); state.gains = Object.assign({}, DEFAULT.gains, state.gains);
 if(!recipes.some(r=>r.id===state.recipe)) state.recipe="sixteenths";
+state.loopSec=-1; // section loop is an opt-in for this visit only: a page load always plays the whole song
+if(state.loopSong==null) state.loopSong=false;
 if(!LIVE[state.liveInst]) state.liveInst="sing";
 if(!state.vocal) state.vocal=FX.clone(FX.VOCAL_PRESETS[state.vocalPreset]||FX.VOCAL_PRESETS.clean_pop);
 if(!state.amp) state.amp=FX.clone(FX.AMP_PRESETS[state.ampPreset]||FX.AMP_PRESETS.edge);
@@ -354,24 +356,29 @@ async function ensureCtx(){
   await ctx.resume(); if(!liveBufs){ await loadAll; if(!missing.size) liveBufs=await decodeAll(ctx); }
 }
 function rangeFor(sel){ const tl=TL(); const s=sel>=0?tl.secs[sel]:null; return s?{g0:s.start*STEPS,g1:(s.start+s.bars)*STEPS}:{g0:0,g1:tl.total*STEPS}; }
-function setLoop(sel){ state.loopSec=sel; save(); if(playing) pendingRange=rangeFor(sel); paintTimeline(); }
+let startG=0, segStart=0, pendingJump=null, endTimer=null;
+function setLoop(sel){ state.loopSec=sel; save(); if(playing) pendingRange=rangeFor(sel); paintTimeline(); paintWhere(); }
 function router(){ if(!liveRouter||routerBpm!==state.bpm){ liveRouter=fxRouter(ctx,bus,state.bpm); routerBpm=state.bpm; } return liveRouter; }
 async function start(m, fromG){
   if(!ctx||ctx.state!=="running"||!liveBufs||missing.size) return;
   stop(); range=rangeFor(state.loopSec); pendingRange=null;
   const mk = m==="band" ? await makeupGain() : 1; bus.master.gain.setValueAtTime(mk, ctx.currentTime); mode=m;
-  nextStepTime=ctx.currentTime+0.1; g=(fromG!=null&&fromG>=range.g0&&fromG<range.g1)?fromG-(fromG%STEPS):range.g0; stepLog.length=0; playing=true; passNo=0;
+  if(fromG==null) fromG=startG; nextStepTime=ctx.currentTime+0.1; g=(fromG>=range.g0&&fromG<range.g1)?fromG-(fromG%STEPS):range.g0; segStart=g; stepLog.length=0; playing=true; passNo=0;
   timerId=setInterval(scheduler, LOOKAHEAD_MS); scheduler(); requestAnimationFrame(draw); paintDock();
 }
 function scheduler(){ while(nextStepTime < ctx.currentTime+SCHEDULE_AHEAD){ scheduleStep(g, nextStepTime); nextStepTime += 60/state.bpm/4; g++;
-    if(g%STEPS===0 && pendingRange){ range=pendingRange; pendingRange=null; if(g<range.g0||g>=range.g1) g=range.g0; } // range changes land on the next bar line
-    if(g>=range.g1) g=range.g0; }
+    if(g%STEPS===0 && pendingRange){ range=pendingRange; pendingRange=null; if(g<range.g0||g>=range.g1){ g=range.g0; segStart=g; } } // range changes land on the next bar line
+    if(g%STEPS===0 && pendingJump!=null){ if(pendingJump>=range.g0&&pendingJump<range.g1){ g=pendingJump; segStart=g; } pendingJump=null; } // section click: jump on the next bar line
+    if(g>=range.g1){ if(state.loopSec<0 && !state.loopSong){ // end of the song: let the last bar ring, then stop
+        const endAt=nextStepTime; window.__songEndAt=endAt; clearInterval(timerId); timerId=null; clearTimeout(endTimer);
+        endTimer=setTimeout(()=>{ if(playing && !timerId){ const r=mode==="rec"; stop(); startG=0; paintPlayhead(-1); paintWhere(); setStatus(r?"End of song: the full pass is saved as takes.":"End of song."); } }, Math.max(0,(endAt-ctx.currentTime)*1000)+80); return; }
+      g=range.g0; segStart=g; } }
   if(mode==="rec") recTick(); }
 function scheduleStep(st, time){
   const tl=TL(), sd=60/state.bpm/4, evs = stepEvents(st, state, tl, {noLead:mode==="band", rec:mode==="rec"}), R=router();
   if(mode==="rec" && state.recClick && st%4===0) evs.push({part:"kit",src:"kit",note:42,dur:1,vel:st%16===0?0.5:0.3,click:true});
   for(const ev of evs){ voice(ctx, liveBufs, R(ev), ev, time, sd, true); if(!ev.click) midiSend(ev, time, sd); }
-  if(mode!=="band") scheduleAudioTakes(ctx, R, st, st===range.g0, time, sd, tl, true, mode==="rec"?state.loopSec:null);
+  if(mode!=="band") scheduleAudioTakes(ctx, R, st, st===range.g0||st===segStart, time, sd, tl, true, mode==="rec"?state.loopSec:null);
   Object.assign(window.__monitorDesc, R.descs);
   if(st===range.g0){ passNo++; if(mode==="rec") recPasses.push({pass:passNo, time, sd, g0:range.g0, g1:range.g1, sel:state.loopSec, done:false}); }
   const B=tl.bars[Math.floor(st/STEPS)];
@@ -381,12 +388,12 @@ function scheduleStep(st, time){
 }
 function stop(){
   const wasRec = mode==="rec"; const stopAt = ctx ? ctx.currentTime : 0;
-  clearInterval(timerId); timerId=null; playing=false; mode=null; pendingRange=null;
+  clearInterval(timerId); timerId=null; clearTimeout(endTimer); playing=false; mode=null; pendingRange=null; pendingJump=null;
   for(const s of active){ try{ s.stop(); }catch(e){} } active.clear();
   if(midiOut) for(const c of [...CHAIRS.map(c=>c.ch),...Object.values(LIVE).map(l=>l.ch)]) midiOut.send([0xB0|c,123,0]);
   document.querySelectorAll(".kw.now").forEach(x=>x.classList.remove("now")); lastK=-2;
   if(wasRec) finishRec(stopAt);
-  paintDock(); paintPlayhead(-1);
+  paintDock(); paintPlayhead(startG>0?startG:-1);
 }
 function curEntry(t){ let cur=null; for(const e of stepLog){ if(e.time<=t) cur=e; else break; } return cur; }
 function draw(){ if(!playing) return; const now=ctx.currentTime, cur=curEntry(now);
@@ -514,7 +521,7 @@ async function activateKey(key){
   return {ok:true, instance:j.instance.id}; }
 async function validateKey(key, instance){ if(!configured()) return false; const j=await lsCall("validate", instance?{license_key:key, instance_id:instance}:{license_key:key}); return !!j.valid && ours(j); }
 function saveLic(){ localStorage.setItem(APP+"-license",JSON.stringify(lic)); }
-const licUI = () => { document.getElementById("licOff").hidden=!lic.valid; document.getElementById("licState").textContent = lic.valid ? "Licensed: full-song WAV and stems unlocked." : `Free demo: everything plays, records and exports MIDI and the song sheet. WAV and stems export the first 2 sections. A license (${LEMON.price}) unlocks the full song.`; };
+const licUI = () => { document.getElementById("licOff").hidden=!lic.valid; document.getElementById("licState").textContent = lic.valid ? "Licensed: full-song WAV and stems unlocked." : `Free demo: the whole song always plays and records, and exports MIDI and the song sheet. WAV and stems export the first 2 sections. A license (${LEMON.price}) unlocks the full song.`; };
 const gatedNow = () => !lic.valid && TL().secs.length>2;
 
 // ---------- Web MIDI ----------
@@ -613,7 +620,7 @@ async function startRec(){
   bus.master.gain.setValueAtTime(1, ctx.currentTime);
   const bd=4*60/state.bpm, T0=ctx.currentTime+0.15+bd;
   for(let i=0;i<4;i++) voice(ctx, liveBufs, bus.chairs.kit, {src:"kit",note:i?42:38,dur:1,vel:i?0.6:0.85}, T0-bd+i*bd/4, 60/state.bpm/4, true); // count-in
-  window.__recT0=T0; mode="rec"; nextStepTime=T0; g=range.g0; stepLog.length=0; playing=true; passNo=0; ui.bpm.disabled=true;
+  window.__recT0=T0; mode="rec"; nextStepTime=T0; g=range.g0; segStart=g; stepLog.length=0; playing=true; passNo=0; ui.bpm.disabled=true;
   timerId=setInterval(scheduler, LOOKAHEAD_MS); requestAnimationFrame(draw); paintDock(); paintNext();
   const where=state.loopSec>=0?TL().secs[state.loopSec].label:"the full song";
   setStatus(`Recording ${where} on ${LIVE[state.liveInst].label.split(" (")[0]}: one bar count-in, then play. Every pass becomes a new take. Press Stop when done.`);
@@ -728,13 +735,16 @@ function badges(s){ const b=[]; if(s.feel==="half") b.push("½×"); if(s.feel===
 function paintTimeline(){ const tl=TL(), el=ui.timeline;
   el.innerHTML=tl.secs.map(s=>`<button class="seg ${TYPE_CLASS(s.type)}${s.i===selSec?" sel":""}${state.loopSec===s.i?" looped":""}" data-i="${s.i}" style="flex:${s.bars} 1 0" title="${esc(s.label)}: ${esc(moveText(s))}">
     <b>${esc(s.label)}</b><small>${s.bars} bars</small><span class="bdg">${badges(s).map(x=>`<i>${x}</i>`).join("")}${Object.keys(s.lock||{}).length?"<i class=lk>🔒</i>":""}</span></button>`).join("")+'<div id="tph" class="tph"></div>';
-  ui.loopSel.innerHTML=`<option value="-1">Whole song</option>`+tl.secs.map(s=>`<option value="${s.i}">${esc(s.label)}</option>`).join(""); ui.loopSel.value=state.loopSec;
+  { const c=document.getElementById("loopSecChk"); if(c) c.checked=state.loopSec>=0; }
   ui.songInfo.textContent=`${tl.secs.length} sections · ${tl.total} bars · ${Math.floor(tl.total*4*60/state.bpm/60)}:${String(Math.round(tl.total*4*60/state.bpm%60)).padStart(2,"0")} at ${state.bpm} BPM`;
   paintWhy(); }
 function paintPlayhead(pos){ const ph=document.getElementById("tph"); if(!ph) return; const tl=TL(); if(pos<0||!tl.total){ ph.style.display="none"; return; }
   ph.style.display="block"; ph.style.left=(100*pos/(tl.total*STEPS))+"%";
   const si=(tl.bars[Math.floor(pos/STEPS)]||{sec:{i:-1}}).sec.i; document.querySelectorAll(".seg").forEach(b=>b.classList.toggle("now",+b.dataset.i===si)); }
-ui.timeline.addEventListener("click",e=>{ const b=e.target.closest(".seg"); if(!b) return; selSec=+b.dataset.i; paintTimeline(); paintEditor(); paintKaraoke(); });
+ui.timeline.addEventListener("click",e=>{ const b=e.target.closest(".seg"); if(!b) return; selSec=+b.dataset.i; const s=TL().secs[selSec];
+  if(state.loopSec>=0) setLoop(selSec); // section loop is on: loop the clicked section instead
+  else if(s){ startG=s.start*STEPS; if(playing) pendingJump=startG; else paintPlayhead(startG); }
+  paintTimeline(); paintEditor(); paintKaraoke(); paintWhere(); });
 function paintWhy(){ const s=TL().secs[selSec]; if(!s){ ui.why.innerHTML=""; return; } const R=s.reasons||{};
   const row=(f,v)=>`<li><b>${v}</b> — ${esc(R[f]||"")}${s.lock&&s.lock[f]?" 🔒":""}</li>`;
   ui.why.innerHTML=`<h3>${esc(s.label)} <small>${esc(s.detectWhy||"")}</small></h3><ul>
@@ -781,7 +791,15 @@ function resuggest(silent){ // re-run the arrangement suggestions on the CURRENT
 ui.resuggest.onclick=()=>{ snap(); resuggest(false); };
 ui.undoBtn.onclick=()=>undo(); ui.undoBtn.disabled=true;
 ui.rebuild.onclick=()=>{ snap(); buildSong(true); selSec=0; songChanged(); setStatus("Sections found again from your lyric (locks kept, Undo to go back)."); };
-ui.loopSel.onchange=()=>setLoop(+ui.loopSel.value);
+function paintWhere(){ const el=document.getElementById("playWhere"); if(!el) return; const tl=TL();
+  el.textContent = state.loopSec>=0&&tl.secs[state.loopSec] ? `Looping ${tl.secs[state.loopSec].label} only. Untick "Loop selected section" to play the whole song.`
+    : `Play runs ${startG>0&&tl.bars[startG/STEPS]?"from "+tl.bars[startG/STEPS].sec.label+" ":"from the top "}through all ${tl.secs.length} sections, then ${state.loopSong?"starts again":"stops"}.`; }
+document.getElementById("loopSecChk").addEventListener("change",e=>setLoop(e.target.checked?selSec:-1));
+document.getElementById("loopSong").checked=!!state.loopSong;
+document.getElementById("loopSong").addEventListener("change",e=>{ state.loopSong=e.target.checked; save(); paintWhere(); });
+document.getElementById("toTop").addEventListener("click",()=>{ startG=0; if(playing&&state.loopSec<0) pendingJump=0; else paintPlayhead(playing?0:-1); paintWhere(); });
+document.getElementById("playTop").addEventListener("click",async()=>{ setLoop(-1); startG=0; await ensureCtx(); start("full",0); });
+paintWhere();
 document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==="z"){ const tg=e.target.tagName; if(tg==="INPUT"||tg==="TEXTAREA") return; e.preventDefault(); undo(); } });
 // ---- lyric + karaoke ----
 let lyrTimer=null;
@@ -893,7 +911,7 @@ document.getElementById("chairs").addEventListener("input",e=>{ const m=e.target
 const go = m => async () => { await ensureCtx(); start(m); };
 document.getElementById("playA").onclick=go("band");
 document.getElementById("playB").onclick=go("full");
-{ const ps=document.getElementById("playSec"); if(ps) ps.onclick=async()=>{ setLoop(selSec); await ensureCtx(); start("full"); }; }
+
 document.getElementById("stop").onclick=stop;
 const recClick = ()=>{ if(mode==="rec"){ stop(); return; } startRec(); };
 document.getElementById("recBtn").onclick=recClick; document.getElementById("recBtn2").onclick=recClick;
