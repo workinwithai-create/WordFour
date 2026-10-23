@@ -21,7 +21,7 @@ Static HTML, CSS and JS (`fx.js`, `song.js`, `app.js`) with no framework, auth o
 
 ## Mic and guitar input (aligned audio takes)
 
-- In **More → Mic / guitar in**, choose what you plug in: **Mic → vocal chain**, **Guitar → amp** or **Bass → bass amp**. Pick the device and press **Connect input**. The browser only asks for the mic after you press it. Echo cancellation, noise suppression and auto gain are all off, so you get a clean DI or mic signal.
+- In the **Mic / Guitar** panel (next to the instrument picker), choose what you plug in: **Mic → vocal chain**, **Guitar → amp** or **Bass → bass amp**. Pick the device and press **Connect input**. The browser only asks for the mic after you press it. Echo cancellation, noise suppression and auto gain are all off, so you get a clean DI or mic signal.
 - You get a level meter, a trim control and a **Hear yourself** monitor. The monitor runs through the live chain, so use headphones with it.
 - **Calibrate** plays 8 clicks and listens for them on the input. It then stores the round-trip offset as the **Nudge**. **Auto latency** adds the browser's reported output and input latency.
 - When an input is connected, **● Record** also records it for every pass of the loop (one section or the full song). Each pass becomes an audio take, cut to the exact pass length, shifted by the offset and saved **dry** in your browser (IndexedDB, nothing is uploaded). The vocal chain or amp is applied on playback, so you can change presets after recording. Live playback and offline export use the same chain.

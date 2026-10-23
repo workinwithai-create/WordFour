@@ -46,6 +46,20 @@
     <div class="row inputs">
       <label class="grow">Instrument <select id="liveInst"></select></label>
     </div>
+    <div class="micpanel" id="micPanel"><h3>🎤 Mic / Guitar</h3>
+    <div class="row inputs" id="inputRow">
+      <label>Plug in <select id="inputType"><option value="mic">Mic → vocal chain</option><option value="gtrin">Guitar → amp</option><option value="bassin">Bass → bass amp</option></select></label>
+      <label>Device <select id="inputDev"><option value="">Default input</option></select></label>
+      <button id="inputBtn" type="button">Connect input</button>
+      <meter id="inputMeter" min="0" max="1" value="0" title="Input level"></meter>
+      <label>Trim <input type="range" id="inputTrim" min="-24" max="24" step="1" value="0" /></label>
+      <label class="chk"><span><input type="checkbox" id="inputMon" /> Hear yourself (use headphones)</span></label>
+      <label class="chk"><span><input type="checkbox" id="latAuto" checked /> Auto latency</span></label>
+      <button id="calBtn" type="button" title="Plays 8 clicks and listens for them on the input">Calibrate</button>
+      <label>Nudge <input type="number" id="latNudge" min="-200" max="200" step="1" value="0" style="width:4.5em" /> ms</label>
+    </div>
+    <small id="inputNote" class="status">Not connected. WordFour only uses your mic or interface after you press Connect.</small>
+    </div>
     <div class="kbrow"><button class="mini" id="octDn" aria-label="Octave down">◀</button><div id="miniKeys" class="minikeys"></div><button class="mini" id="octUp" aria-label="Octave up">▶</button><small id="octLbl"></small></div>
     <p id="liveHint" class="hint"></p>
     <div class="row inputs faders">
@@ -67,12 +81,12 @@
     <div class="row inputs"><button class="mini" id="clearTakes">Clear takes</button></div>
   </section>
 
-  <details class="fx"><summary>4 · Vocal chain (for sung takes)</summary><div id="vocalFx" class="fxp"></div></details>
-  <details class="fx"><summary>5 · Guitar amp (nylon and electric guitar)</summary><div id="ampFx" class="fxp"></div></details>
-  <details class="fx"><summary>6 · Bass amp</summary><div id="bassFx" class="fxp"></div></details>
+  <details class="fx"><summary>4 · Vocal chain (sung takes + mic input)</summary><div id="vocalFx" class="fxp"></div></details>
+  <details class="fx"><summary>5 · Guitar amp (played guitars + guitar input)</summary><div id="ampFx" class="fxp"></div></details>
+  <details class="fx"><summary>6 · Bass amp (played bass + bass input)</summary><div id="bassFx" class="fxp"></div></details>
   <p class="status">Takes are stored dry. The chain is a setting on each take, so you can change it after recording. New takes and live playing use the panels above.</p>
 
-  <details class="fx"><summary>More: note tidying, band levels, MIDI, audio output, stems</summary>
+  <details class="fx"><summary>More: note tidying, band levels, MIDI in/out, output device, stems</summary>
     <p class="eyebrow">How your notes are tidied</p>
     <div class="row" id="recipes"></div>
     <p class="eyebrow">Band chairs</p>
@@ -86,18 +100,6 @@
     <small id="midiNote" class="status">Notes never start or stop the band. Out: bass ch1, piano ch2, strings ch3, melody ch4, e-piano ch5, guitar ch6, kit ch10; your live instrument on its own channel.</small>
     <p class="eyebrow">Audio output</p>
     <div class="row inputs"><label>Output device <select id="audioOut"><option value="">System default</option></select></label><small id="audioOutNote" class="status"></small></div>
-    <div class="row inputs" id="inputRow"><strong>Mic / guitar in</strong>
-      <label>Plug in <select id="inputType"><option value="mic">Mic → vocal chain</option><option value="gtrin">Guitar → amp</option><option value="bassin">Bass → bass amp</option></select></label>
-      <label>Device <select id="inputDev"><option value="">Default input</option></select></label>
-      <button id="inputBtn" type="button">Connect input</button>
-      <meter id="inputMeter" min="0" max="1" value="0" title="Input level"></meter>
-      <label>Trim <input type="range" id="inputTrim" min="-24" max="24" step="1" value="0" /></label>
-      <label class="chk"><span><input type="checkbox" id="inputMon" /> Hear yourself (use headphones)</span></label>
-      <label class="chk"><span><input type="checkbox" id="latAuto" checked /> Auto latency</span></label>
-      <button id="calBtn" type="button" title="Plays 8 clicks and listens for them on the input">Calibrate</button>
-      <label>Nudge <input type="number" id="latNudge" min="-200" max="200" step="1" value="0" style="width:4.5em" /> ms</label>
-    </div>
-    <small id="inputNote" class="status">Not connected. WordFour only uses your mic or interface after you press Connect.</small>
     <p class="eyebrow">Stems</p>
     <div class="row inputs"><label class="chk"><span><input type="checkbox" id="stemsDry" /> Also export dry copies of processed takes</span></label><button class="mini" id="exportStems">Export stems (.zip)</button></div>
   </details>

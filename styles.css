@@ -118,3 +118,5 @@ details.fx{margin:10px 0;border:1px solid rgba(255,255,255,.12);border-radius:10
 .takes{list-style:none;padding:0;margin:4px 0}.take{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.08)}.take.on b{color:#7fd18b}
 .kw.now{background:#f4c35a;color:#111;border-radius:4px}.kw.st{font-weight:700}.ksec{font-size:12px;opacity:.7;text-transform:uppercase}
 @media (max-width:520px){.seg{min-width:38px;padding:4px}.seg b{font-size:11px}.seg small{display:none}.ed-grid{grid-template-columns:1fr 1fr}}
+.micpanel{border:1px solid #555;border-radius:12px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.03)}
+.micpanel h3{margin:0 0 6px;font-size:1rem}
