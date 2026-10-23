@@ -1,0 +1,8 @@
+node_modules
+dist
+.vercel
+.env*
+qa/out
+*.wav
+*.mid
+*.png
