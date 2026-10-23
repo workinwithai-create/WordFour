@@ -25,7 +25,7 @@ async def main():
     r2=await pg.evaluate(B64,{'bpm':92,'bars':8}); x2=load(base64.b64decode(r2['b64']))[3]
     t=np.tile(x,(4,1)); N=len(x); d=np.abs(np.diff(t[:,0])); bar=48000*4*60/92
     # grid check on a kit-only render (kick on every downbeat in the demo groove): lag of best cross-correlation of each downbeat window vs bar 2's (0 = no drift)
-    rk=await pg.evaluate(B64,{'bpm':92,'bars':8,'mutes':{'bass':True,'lead':True,'piano':True,'pad':True}}); xk=np.tile(load(base64.b64decode(rk['b64']))[3][:,0],4); on=[]
+    rk=await pg.evaluate(B64,{'bpm':92,'bars':8,'mutes':{'bass':True,'lead':True,'piano':True,'pad':True,'epiano':True,'gtr':True,'play':True}}); xk=np.tile(load(base64.b64decode(rk['b64']))[3][:,0],4); on=[]
     ref=xk[int(round(bar)):int(round(bar))+2400]
     for k in range(32):
       s0=int(round(k*bar)); best=max(range(-200,201),key=lambda Lg: float(np.dot(ref, xk[max(0,s0+Lg):max(0,s0+Lg)+2400])) if s0+Lg>=0 else -1e9); on.append(best)
@@ -37,7 +37,7 @@ async def main():
     rms=lambda a: float(np.sqrt((a**2).mean()))
     c6={}
     for bpm in (68,60):
-      r=await pg.evaluate(B64,{'bpm':bpm,'bars':4,'mutes':{'kit':True,'bass':True,'piano':True,'lead':True}}); s=load(base64.b64decode(r['b64']))[3].mean(1); barN=int(48000*4*60/bpm)
+      r=await pg.evaluate(B64,{'bpm':bpm,'bars':4,'fromBar':10,'parts':['pad'],'noLead':True}); s=load(base64.b64decode(r['b64']))[3].mean(1); barN=int(48000*4*60/bpm)
       mid=rms(s[int(barN*0.3):int(barN*0.5)]); end=rms(s[int(barN*0.88):int(barN*0.96)])
       c6[f'{bpm}bpm']={'bar_s':round(barN/48000,3),'rms_30-50pct':round(mid,4),'rms_88-96pct':round(end,4),'end_over_mid':round(end/mid,3)}
     c6['pass']=all(v['end_over_mid']>0.5 for k,v in c6.items() if k!='pass'); res['c6']=c6
@@ -54,7 +54,7 @@ async def main():
       if name=='bpm': hit=[e for e in log if e['time']>t0 and e['bpm']==120]
       if name=='mute': hit=[e for e in log if e['time']>t0 and e['mutes']['bass']]
       if name=='recipe': hit=[e for e in log if e['time']>t0 and e['recipe']=='eighths']
-      if name=='key': hit=[e for e in log if e['time']>t0 and e['keyRoot']==0 and any(n.startswith('piano:') or n.startswith('pad:') or n.startswith('bass:') for n in e['notes'])]
+      if name=='key': hit=[e for e in log if e['time']>t0 and e['keyRoot']==0 and any(n.split(':')[0] in ('piano','pad','bass','epiano','gtr') for n in e['notes'])]
       barS=60/120*4 if name!='bpm' else 60/92*4
       live[name]={'delay_s':round(hit[0]['time']-t0,3) if hit else None,'bar_s':round(barS,3),'pass':bool(hit) and hit[0]['time']-t0<=barS}
     res['c4']=live; res['c4']['still_playing_no_restart']=await pg.evaluate("()=>window.__wordfour.playing")

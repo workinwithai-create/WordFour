@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WordFour — you have the words, play the melody (real voice + lyric MIDI)</title>
-  <meta name="description" content="Got lyrics but no melody? Type your words over your own BPM, key and 4 chords. WordFour sketches a melody from how the words are stressed, or lets you play one: every key you press sings your next syllable at that pitch on a real sampled voice over a real band. Every loop pass is a new take. Exports WAV, MIDI with your lyric on every note, and a lyric sheet." />
+  <title>WordFour — paste a whole song, get an arrangement, sing it on the keys</title>
+  <meta name="description" content="Paste your whole lyric. WordFour finds the verses, choruses and bridge, suggests half-time, double-time, drops, builds, stop bars and a last-chorus lift with a reason for each, and lets you change any of it. Sing your words on any key on a real sampled voice through a vocal chain, or play piano, guitar through an amp, bass, strings or drums over a real band. Exports WAV, MIDI with lyrics and section markers, a song sheet and stems." />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -12,84 +12,99 @@
 <main>
   <p class="eyebrow">WorkinWithAI · live chairs</p>
   <h1>WordFour</h1>
-  <p class="lead">You've got the words but no melody, and no music theory to find one. Type your lyric, set your BPM, key and 4 chords, and WordFour gives you two ways in. <b>Sketch</b> builds a starting melody from the words themselves: stressed syllables land on beats and chord tones, and the last word comes home to the root. <b>Play</b> lets you hum it out on any key: every press sings your <i>next syllable</i> at the pitch you play, on a real sampled voice over a real band. Every loop pass is a new take. Export a WAV, a MIDI file with your lyric attached to every note, and a lyric sheet. Nothing is uploaded, no AI sounds.</p>
+  <p class="lead">Paste your whole lyric. WordFour finds the sections, builds a song around them and tells you <b>why</b> each move is there: half-time bridge, double-time chorus, drop-outs, builds, stop bars and a last-chorus lift. Change anything. Then sing your words on the keys (every press sings your next syllable) or play a real instrument over the band. Nothing is uploaded, no AI sounds.</p>
   <p class="status" id="status">Seating voice and band…</p>
-  <p class="status ios" hidden>iOS: the silent switch mutes Web Audio.</p>
-  <p class="eyebrow">Your loop</p>
+
+  <p class="eyebrow">1 · Your song</p>
   <div class="row inputs">
     <label>BPM <input id="bpm" type="number" min="60" max="180" step="1" /></label>
-    <label>Key (chord 1 root) <select id="key"></select></label>
-    <label class="grow">4 chords <input id="chords" placeholder="Am F C G" /><small id="chordErr"></small></label>
-    <label>Melody sound <select id="leadInst"><option value="voice">Voice oohs</option><option value="flute">Flute</option><option value="piano">Piano</option></select></label>
-    <label>Export bars <select id="bars"><option>4</option><option selected>8</option><option>16</option></select></label>
+    <label>Key <select id="key"></select></label>
+    <label class="grow">Main 4 chords <input id="chords" placeholder="Am F C G" /><small id="chordErr"></small></label>
   </div>
-  <p class="eyebrow">Presets (demos)</p>
   <div class="row" id="grooves"></div>
-  <p class="eyebrow">Your words</p>
   <section class="live">
-    <label class="grow">Lyric (one line per phrase, up to 8 lines; hyphens fix a split: wait-ing)<textarea id="lyrics" rows="5" spellcheck="true"></textarea></label>
-    <div id="sylls" class="sylls"></div>
+    <label class="grow">Lyric: whole song. A blank line starts a new section; [Chorus] style labels work too; hyphens fix a split (wait-ing).<textarea id="lyrics" rows="8" spellcheck="true"></textarea></label>
+  </section>
+
+  <p class="eyebrow">2 · The arrangement <small id="songInfo"></small></p>
+  <div class="timeline" id="timeline" role="list" aria-label="Song timeline: click a section"></div>
+  <div class="row inputs tlbar">
+    <button class="mini" id="editToggle" aria-expanded="false">✎ Edit section</button>
+    <button class="mini" id="resuggest" title="New suggestions; anything you locked stays">↻ Re-suggest</button>
+    <button class="mini" id="undoBtn">↶ Undo</button>
+    <button class="mini" id="rebuild">Find sections again</button>
+    <label>Loop <select id="loopSel"></select></label>
+    <button class="mini" id="playSec">▶ Loop this section</button>
+  </div>
+  <div class="why" id="why"></div>
+  <div class="editor" id="editor" hidden></div>
+
+  <p class="eyebrow">3 · Play and sing</p>
+  <section class="live">
+    <div class="karaoke" id="karaoke" aria-live="off"></div>
+    <p class="hint">Next syllable: <b id="nextSyl"></b> <button class="mini" id="resetWords">Back to first word</button></p>
     <div class="row inputs">
-      <label>Sketch shape <select id="shape"></select></label>
-      <button class="mini" id="sketchBtn">Use sketch as a take</button>
+      <label class="grow">Instrument <select id="liveInst"></select></label>
     </div>
-    <p class="status">The sketch is a deterministic starting point from the stress of your words, not a finished song. Press B to hear it, then play your own.</p>
+    <div class="kbrow"><button class="mini" id="octDn" aria-label="Octave down">◀</button><div id="miniKeys" class="minikeys"></div><button class="mini" id="octUp" aria-label="Octave up">▶</button><small id="octLbl"></small></div>
+    <p id="liveHint" class="hint"></p>
+    <div class="row inputs faders">
+      <label>Your playing <input id="volLive" type="range" min="-24" max="12" step="0.5" /><output></output></label>
+      <label>Band <input id="volBand" type="range" min="-24" max="12" step="0.5" /><output></output></label>
+      <label>Master <input id="volMaster" type="range" min="-24" max="6" step="0.5" /><output></output></label>
+    </div>
+    <div class="row inputs">
+      <button class="mini rec" id="recBtn">● Record</button>
+      <button class="mini" id="sketchBtn">✨ Sketch a melody for this section</button>
+      <label>Sketch shape <select id="shape"></select></label>
+      <label class="chk"><span><input type="checkbox" id="recClick" /> Click while recording</span></label>
+      <label class="chk"><span><input type="checkbox" id="layer" /> Layer takes</span></label>
+    </div>
+    <p class="status">Record loops whatever the Loop box says (one section or the whole song). Every pass becomes a new take for the instrument you played. Keys <b>A W S E D F T G Y H U J K</b>, <b>Z / X</b> octave, <b>Space</b> play/stop. A MIDI keyboard works with velocity and the sustain pedal. The voice sample sings "ooh"; your words are on screen, in the MIDI lyric events and on the song sheet.</p>
+    <p class="eyebrow">Takes</p>
+    <small id="takeInfo" class="status"></small>
+    <ul id="takes" class="takes"></ul>
+    <div class="row inputs"><button class="mini" id="clearTakes">Clear takes</button></div>
   </section>
-  <p class="eyebrow">Sing it on the keys</p>
-  <section class="live">
-  <div class="karaoke" id="karaoke" aria-live="off"></div>
-  <p id="nextSyl" class="hint"></p>
-  <div class="kbrow"><button class="mini" id="liveOctDn" aria-label="Octave down">◀</button><div id="miniKeys" class="minikeys"></div><button class="mini" id="liveOctUp" aria-label="Octave up">▶</button><small id="liveOctLbl"></small></div>
-  <p id="liveHint" class="hint"></p>
-  <div class="row inputs">
-    <button class="mini rec" id="recBtn">● Record</button>
-    <button class="mini" id="resetWords">Back to first word</button>
-    <label class="chk"><span><input type="checkbox" id="recClick" /> Hi-hat click while recording</span></label>
-    <label class="chk"><span><input type="checkbox" id="layer" /> Layer: keep earlier takes looping</span></label>
-  </div>
-  <p class="status">One bar of count-in, then play. Recording loops until you stop it, every 4-bar pass becomes its own take, and each pass starts again from your first word. Keys: <b>A W S E D F T G Y H U J K O L P ; '</b> play C up to F, <b>Z / X</b> change octave. A MIDI keyboard works too, with velocity and the sustain pedal. Honest note: the sample sings "ooh"; your words show here, on the grid, in the MIDI lyric events and on the lyric sheet.</p>
-  <p class="eyebrow">Takes</p>
-  <small id="takeInfo" class="status"></small>
-  <div id="takes" class="takes"></div>
-  <div class="row inputs"><button class="mini" id="exportStems">Export takes (WAV stems .zip)</button><button class="mini" id="clearTakes">Clear takes</button></div>
-  </section>
-  <p class="eyebrow">Grid · 4 bars · your melody with its words</p>
-  <p class="status" id="gridTitle"></p>
-  <div class="grid" id="grid"></div>
-  <p class="eyebrow">How your notes are tidied</p>
-  <div class="row" id="recipes"></div>
-  <p class="eyebrow">Chairs</p>
-  <div class="row" id="chairs"></div>
-  <p class="eyebrow">Play along live</p>
-  <section class="live">
-  <div class="row inputs">
-    <label>MIDI in <select id="midiIn"><option value="">(none)</option></select></label>
-    <label>Live mode <select id="liveInst"><option value="words">Words (each key sings the next syllable)</option><option value="voice">Voice oohs notes</option><option value="flute">Flute notes</option><option value="piano">Piano notes</option><option value="bass">Finger bass notes</option><option value="pad">String pad notes (hold)</option></select></label>
-    <label>Live level <input id="liveGainIn" type="range" min="0" max="1" step="0.01" /></label>
-    <label class="chk"><span><input type="checkbox" id="midiTransport" /> MIDI Start/Stop messages run transport</span></label>
-  </div>
-  <p class="status">Velocity works from a MIDI controller. The sustain pedal (CC64) holds notes. Notes never start or stop the band. ● Record captures Words mode.</p>
-  </section>
-  <p class="eyebrow">Audio output</p>
-  <div class="row inputs"><label>Output device <select id="audioOut"><option value="">System default</option></select></label><small id="audioOutNote" class="status"></small><small class="status">No audio input: WordFour never uses your mic.</small></div>
-  <p class="eyebrow">Web MIDI out</p>
-  <div class="row inputs">
-    <label>Out <select id="midiOut"><option value="">(none)</option></select></label>
-    <small id="midiNote">Out while playing: bass ch1, piano ch2, pad ch3, your melody ch4, kit ch10 (GM 36/38/42).</small>
-  </div>
+
+  <details class="fx"><summary>4 · Vocal chain (for sung takes)</summary><div id="vocalFx" class="fxp"></div></details>
+  <details class="fx"><summary>5 · Guitar amp (nylon and electric guitar)</summary><div id="ampFx" class="fxp"></div></details>
+  <details class="fx"><summary>6 · Bass amp</summary><div id="bassFx" class="fxp"></div></details>
+  <p class="status">Takes are stored dry. The chain is a setting on each take, so you can change it after recording. New takes and live playing use the panels above.</p>
+
+  <details class="fx"><summary>More: note tidying, band levels, MIDI, audio output, stems</summary>
+    <p class="eyebrow">How your notes are tidied</p>
+    <div class="row" id="recipes"></div>
+    <p class="eyebrow">Band chairs</p>
+    <div class="row" id="chairs"></div>
+    <p class="eyebrow">MIDI</p>
+    <div class="row inputs">
+      <label>MIDI in <select id="midiIn"><option value="">(none)</option></select></label>
+      <label>MIDI out <select id="midiOut"><option value="">(none)</option></select></label>
+      <label class="chk"><span><input type="checkbox" id="midiTransport" /> MIDI Start/Stop messages run transport</span></label>
+    </div>
+    <small id="midiNote" class="status">Notes never start or stop the band. Out: bass ch1, piano ch2, strings ch3, melody ch4, e-piano ch5, guitar ch6, kit ch10; your live instrument on its own channel.</small>
+    <p class="eyebrow">Audio output</p>
+    <div class="row inputs"><label>Output device <select id="audioOut"><option value="">System default</option></select></label><small id="audioOutNote" class="status"></small><small class="status">No audio input: WordFour never uses your mic.</small></div>
+    <p class="eyebrow">Stems</p>
+    <div class="row inputs"><label class="chk"><span><input type="checkbox" id="stemsDry" /> Also export dry copies of processed takes</span></label><button class="mini" id="exportStems">Export stems (.zip)</button></div>
+  </details>
+
   <p class="eyebrow">License</p>
   <div class="row inputs"><span id="licState" class="status"></span><input id="licKey" placeholder="Lemon Squeezy license key" aria-label="License key" /><button class="mini" id="licBtn">Unlock</button><button class="mini" id="licOff" hidden>Remove key</button><a class="mini" id="buy" target="_blank" rel="noopener">Buy</a></div>
-  <p class="status">Samples: voice oohs, flute, acoustic grand piano, finger bass and string ensemble from FluidR3_GM (Frank Wen, CC BY 3.0) via gleitz/midi-js-soundfonts pinned @044fab8. Backing kit (kick, snare, closed hi-hat) from Virtuosity Drums by Versilian / sfzinstruments (CC0), pinned @9f04cf9. Every semitone used is sampled, so nothing is pitch-shifted. Code MIT.</p>
+  <p class="status">Samples: voice oohs, acoustic grand piano, electric piano 1, nylon and clean electric guitar, finger bass and string ensemble from FluidR3_GM (Frank Wen, CC BY 3.0) via gleitz/midi-js-soundfonts pinned @044fab8. Kit (kick, snare, closed hi-hat, crash) from Virtuosity Drums by Versilian / sfzinstruments (CC0), pinned @9f04cf9. Every semitone used is sampled. Vocal chains and amps are plain Web Audio processing with made-up names, not models of branded gear. Code MIT.</p>
 </main>
 <div class="dock">
-  <button id="playA">A · Thin: band only</button>
-  <button id="playB">B · Need: band + your melody</button>
-  <button class="ghost" id="stop">Stop</button>
+  <button id="playA">A · Band only</button>
+  <button id="playB">▶ Song</button>
+  <button class="ghost" id="stop">■ Stop</button>
   <button class="ghost rec" id="recBtn2">● Record</button>
-  <button class="ghost" id="exportWav">Export WAV</button>
-  <button class="ghost" id="exportMid">Export MIDI</button>
-  <button class="ghost" id="exportSheet">Lyric sheet</button>
+  <button class="ghost" id="exportWav">WAV</button>
+  <button class="ghost" id="exportMid">MIDI</button>
+  <button class="ghost" id="exportSheet">Sheet</button>
 </div>
+<script src="./fx.js" defer></script>
+<script src="./song.js" defer></script>
 <script src="./app.js" defer></script>
 </body>
 </html>
