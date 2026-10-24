@@ -46,6 +46,12 @@
   <section class="live">
     <div class="karaoke" id="karaoke" aria-live="off"></div>
     <p class="hint">Next syllable: <b id="nextSyl"></b> <button class="mini" id="resetWords">Back to first word</button></p>
+    <div class="modesw" role="radiogroup" aria-label="What your keys and MIDI do">
+      <span class="modelbl">Keys &amp; MIDI:</span>
+      <label><input type="radio" name="inputMode" value="play" checked /> Play along</label>
+      <label><input type="radio" name="inputMode" value="words" /> MIDI drives words</label>
+    </div>
+    <small id="modeNote" class="hint"></small>
     <div class="row inputs">
       <label class="grow">Instrument <select id="liveInst"></select></label>
     </div>

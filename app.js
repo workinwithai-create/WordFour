@@ -103,7 +103,7 @@ const DEFAULT = { bpm:92, keyRoot:9, chords:"Am F C G", groove:"porch", recipe:"
   recClick:true, layer:false, loopSec:-1, editOpen:false, structEdited:false, stemsDry:true,
   mutes:{lead:false,play:false,piano:false,epiano:false,gtr:false,bass:false,pad:false,kit:false},
   gains:{lead:0.85,play:0.8,piano:0.4,epiano:0.42,gtr:0.38,bass:0.8,pad:0.2,kit:0.65},
-  midiIn:"", midiOut:"", midiTransport:false, liveInst:"sing", liveOct:4, liveDb:0, bandDb:0, masterDb:0,
+  midiIn:"", midiOut:"", midiTransport:false, liveInst:"sing", inputMode:"play", liveOct:4, liveDb:0, bandDb:0, masterDb:0,
   vocalPreset:"clean_pop", ampPreset:"edge", bassPreset:"bass_amp", vocal:null, amp:null, bassAmp:null, song:null };
 const state = Object.assign({}, DEFAULT, (()=>{ try{ return JSON.parse(localStorage.getItem(APP+"-v2")||"null") || {}; }catch(e){ return {}; } })());
 state.mutes = Object.assign({}, DEFAULT.mutes, state.mutes); state.gains = Object.assign({}, DEFAULT.gains, state.gains);
@@ -572,9 +572,9 @@ function liveOn(note,vel,src){
   const vg=Math.max(0.08,Math.pow(vel,1.3)), dest=liveDest(inst); let vo;
   if(inst==="sing"){
     for(const [k,v] of liveVoices) if(v.words){ releaseVoice(v,t); liveVoices.delete(k); recNoteOff(k,t); } // mono: a new syllable cuts the last
-    const n=inRange(note,INST.voice.lo,INST.voice.hi), sy=nextSyl(t);
+    const n=inRange(note,INST.voice.lo,INST.voice.hi), drive=state.inputMode==="words", sy=drive?nextSyl(t):(playing?nextSyl(t,true):null); // Play along: peek only, the clock owns the words
     vo={parts:[oneVoice("voice",n,vg,t,dest)],id:"voice",vg,sustained:false,done:false,notes:[n],words:true,syl:sy?sy.g:-1,text:sy?sy.text:""};
-    recNoteOn(key,vel,n,vo.syl,vo.text,t,inst); paintNext(); kSing(vo.syl); }
+    recNoteOn(key,vel,n,vo.syl,vo.text,t,inst); if(drive){ paintNext(); kSing(vo.syl); } }
   else if(L.src==="kit"){ const n=KIT_KEYS[pc(note)]; vo={parts:[oneVoice("kit",n,vg,t,dest)],id:"kit",vg,sustained:false,done:false,notes:[n]}; recNoteOn(key,vel,n,-1,"",t,inst); }
   else { const I=INST[L.src], n=inRange(note,I.lo,I.hi); vo={parts:[oneVoice(L.src,n,vg,t,dest)],id:L.src,vg,sustained:false,done:false,notes:[n]}; recNoteOn(key,vel,n,-1,"",t,inst); }
   if(midiOut) midiOut.send([0x90|L.ch,vo.notes[0],Math.max(1,Math.round(vel*127))]);
@@ -861,7 +861,7 @@ let hintKey="";
 function curBar(){ if(!playing||!ctx) return 0; const c=curEntry(ctx.currentTime); return c?c.bar:0; }
 function updateHint(force){ const b=curBar(), k=state.liveInst+b+state.keyRoot+state.chords+JSON.stringify(state.song).length; if(k===hintKey&&!force) return; hintKey=k;
   const tl=TL(), c=chordAtBar(tl,b); if(!c) return; const tones=`now <b>${c.name}</b> (${esc(c.sec.label)}): chord tones <b>${c.tones.map(t=>NAMES[t]).join(" ")}</b> (lit keys)`, L=LIVE[state.liveInst];
-  ui.liveHint.innerHTML = state.liveInst==="sing" ? `Sing lyrics: every key sings your next syllable at the pitch you play, through the <b>${esc(FX.VOCAL_PRESETS[state.vocalPreset].name)}</b> vocal chain. · ${tones}`
+  ui.liveHint.innerHTML = state.liveInst==="sing" ? (state.inputMode==="play" ? `Voice: every key sings "ooh" (the words follow the song)` : `Sing lyrics: every key sings your next syllable`)+` at the pitch you play, through the <b>${esc(FX.VOCAL_PRESETS[state.vocalPreset].name)}</b> vocal chain. · ${tones}`
     : state.liveInst==="kit" ? "Drum kit: C/C# kick, D/D# snare, E–F# hi-hat, G crash (repeats up the keys)." : `${esc(L.label)} · ${tones}`;
   document.querySelectorAll(".mk").forEach(el=>{ const p=pc(+el.dataset.n); el.classList.toggle("tone",state.liveInst!=="kit"&&c.tones.includes(p)); el.classList.toggle("root",state.liveInst!=="kit"&&p===c.tones[0]); }); paintNext(); }
 function pointerKeys(box, sel){ const down=new Map();
@@ -876,6 +876,10 @@ document.addEventListener("keydown",e=>{ if(e.repeat||e.metaKey||e.ctrlKey||e.al
   const i=KEYMAP.indexOf(k); if(i>=0){ e.preventDefault(); liveOn(kbBase()+i,0.85,"kb"); } });
 document.addEventListener("keyup",e=>{ const i=KEYMAP.indexOf(e.key.toLowerCase()); if(i>=0) liveOff(kbBase()+i,"kb"); });
 window.addEventListener("blur",()=>{ for(const [k] of [...liveVoices]) if(/^(kb|tap):/.test(k)) liveOff(+k.split(":")[1],k.split(":")[0]); });
+function paintMode(){ const m=state.inputMode==="words"?"words":"play"; document.querySelectorAll('input[name="inputMode"]').forEach(r=>{ r.checked=r.value===m; r.closest("label").classList.toggle("on",r.checked); });
+  const n=document.getElementById("modeNote"); if(n) n.textContent = m==="play" ? "Play along: the words scroll with the song; MIDI, on-screen and computer keys just play your instrument." : "MIDI drives words: each note you play sings/steps to the next word."; updateHint(true); }
+document.querySelectorAll('input[name="inputMode"]').forEach(r=>r.addEventListener("change",()=>{ if(!r.checked) return; liveAllOff(); state.inputMode=r.value; save(); paintMode(); }));
+paintMode();
 ui.liveInst.addEventListener("change",()=>{ liveAllOff(); state.liveInst=ui.liveInst.value; save(); renderKeys(); });
 ui.octDn.onclick=()=>{ state.liveOct=Math.max(1,state.liveOct-1); save(); renderKeys(); };
 ui.octUp.onclick=()=>{ state.liveOct=Math.min(6,state.liveOct+1); save(); renderKeys(); };

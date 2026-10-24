@@ -120,3 +120,9 @@ details.fx{margin:10px 0;border:1px solid rgba(255,255,255,.12);border-radius:10
 @media (max-width:520px){.seg{min-width:38px;padding:4px}.seg b{font-size:11px}.seg small{display:none}.ed-grid{grid-template-columns:1fr 1fr}}
 .micpanel{border:1px solid #555;border-radius:12px;padding:10px 12px;margin:10px 0;background:rgba(255,255,255,.03)}
 .micpanel h3{margin:0 0 6px;font-size:1rem}
+
+.modesw{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.5rem 0 .2rem}
+.modesw .modelbl{font-weight:600;margin-right:.2rem}
+.modesw label{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .8rem;border:1px solid currentColor;border-radius:999px;cursor:pointer;opacity:.75}
+.modesw label.on{opacity:1;font-weight:700;outline:2px solid currentColor}
+.modesw input{margin:0}
