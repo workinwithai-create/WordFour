@@ -61,7 +61,8 @@
       <label>Device <select id="inputDev"><option value="">Default input</option></select></label>
       <button id="inputBtn" type="button">Connect input</button>
       <meter id="inputMeter" min="0" max="1" value="0" title="Input level"></meter>
-      <label>Trim <input type="range" id="inputTrim" min="-24" max="24" step="1" value="0" /></label>
+      <label>Trim <input type="range" id="inputTrim" min="-24" max="12" step="0.5" value="0" /> <output id="trimVal">0 dB</output></label>
+      <span class="trimpk" title="Peak level after Trim (dBFS)"><output id="trimPk">-∞ dB</output> <span id="clipLed" class="clipled" title="No clipping" aria-label="Clip light"></span></span>
       <label class="chk"><span><input type="checkbox" id="inputMon" checked /> Hear myself</span></label>
       <label class="chk" title="Browser echo cancellation, noise suppression and auto gain. Mic only; guitar/bass inputs are always raw. Applies next time you press Connect."><span><input type="checkbox" id="micClean" /> Browser mic cleanup (off = best with speakers)</span></label>
       <label class="chk"><span><input type="checkbox" id="latAuto" checked /> Auto latency</span></label>

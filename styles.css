@@ -131,3 +131,6 @@ details.fx{margin:10px 0;border:1px solid rgba(255,255,255,.12);border-radius:10
 .monwarn.bad{border-color:#ff5a5a;color:#ff8080}
 .gateled{display:inline-block;width:14px;height:14px;border-radius:50%;background:#444;border:1px solid #777;align-self:center}
 .gateled.open{background:#3ddc6a;box-shadow:0 0 8px #3ddc6a}
+
+.trimpk{display:inline-flex;align-items:center;gap:.3em;font:12px ui-monospace,monospace}#trimPk{min-width:5.5em;display:inline-block}#trimVal{font:12px ui-monospace,monospace;min-width:4em;display:inline-block}
+.clipled{width:10px;height:10px;border-radius:50%;background:#333;border:1px solid #555;display:inline-block}.clipled.on{background:#f33;box-shadow:0 0 6px #f33}

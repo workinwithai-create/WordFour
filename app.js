@@ -115,6 +115,9 @@ if(!state.vocal) state.vocal=FX.clone(FX.VOCAL_PRESETS[state.vocalPreset]||FX.VO
 if(!state.amp) state.amp=FX.clone(FX.AMP_PRESETS[state.ampPreset]||FX.AMP_PRESETS.edge);
 if(!state.bassAmp) state.bassAmp=FX.clone(FX.AMP_PRESETS.bass_amp);
 if(state.inputMon==null) state.inputMon=true; if(state.micRaw==null) state.micRaw=true; state.gate=Object.assign({on:1,thr:-45,atk:3,hold:200,rel:250},state.gate||{});
+/* Trim v2: dB, -24..+12, default 0. Old builds allowed +24 dB (x15.8) -> reset once / if bad */
+const TRIM_MIN=-24, TRIM_MAX=12, clampTrim=v=>{ v=+v; return Number.isFinite(v)?Math.min(TRIM_MAX,Math.max(TRIM_MIN,v)):0; };
+if(state.trimVer!==2||!Number.isFinite(+state.inTrim)||+state.inTrim<TRIM_MIN||+state.inTrim>TRIM_MAX){ state.inTrim=0; state.trimVer=2; try{ const s=JSON.parse(localStorage.getItem(APP+"-v2")||"null"); if(s){ s.inTrim=0; s.trimVer=2; localStorage.setItem(APP+"-v2",JSON.stringify(s)); } }catch(e){} }
 const save = () => { try{ localStorage.setItem(APP+"-v2", JSON.stringify(state)); }catch(e){} };
 function parseChord(s){ const m=/^([A-G])(#|b)?(maj7|min|m7|m|7|dim|sus2|sus4)?$/.exec(String(s).trim()); if(!m) return null;
   return { root:pc(ROOT[m[1]]+(m[2]==="#"?1:m[2]==="b"?-1:0)), ivs:QUAL[m[3]||""], minor:/^m(?!aj)|^min|^dim/.test(m[3]||""), name:String(s).trim() }; }
@@ -663,7 +666,7 @@ function inputComp(){ // seconds between "the grid hit the speaker" and "the sou
 async function connectInput(stream){
   await ensureCtx(); disconnectInput(true); inStream=stream;
   if(!recNode){ const url=URL.createObjectURL(new Blob([REC_SRC],{type:"application/javascript"})); await ctx.audioWorklet.addModule(url); }
-  inSrc=ctx.createMediaStreamSource(stream); inGain=ctx.createGain(); inGain.channelCount=1; inGain.channelCountMode="explicit"; inGain.channelInterpretation="speakers"; inGain.gain.value=dbLin(state.inTrim||0); /* stereo interface -> one mono signal (L+R)/2, never left-only */ inAn=ctx.createAnalyser(); inAn.fftSize=1024;
+  inSrc=ctx.createMediaStreamSource(stream); inGain=ctx.createGain(); inGain.channelCount=1; inGain.channelCountMode="explicit"; inGain.channelInterpretation="speakers"; inGain.gain.value=dbLin(clampTrim(state.inTrim)); /* stereo interface -> one mono signal (L+R)/2, never left-only */ inAn=ctx.createAnalyser(); inAn.fftSize=1024;
   recNode=recNode||new AudioWorkletNode(ctx,"wf-rec",{numberOfInputs:1,numberOfOutputs:1,channelCount:1,channelCountMode:"explicit"});
   recNode.port.onmessage=e=>recChunks.push(e.data); const sink=ctx.createGain(); sink.gain.value=0; recNode.connect(sink); sink.connect(ctx.destination);
   if(!gateLoaded){ await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([NGATE_SRC],{type:"application/javascript"}))); gateLoaded=true; }
@@ -714,7 +717,11 @@ function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now
 setInterval(feedbackGuard,50);
 setInterval(()=>{ if(monGate) routeMonitor(); },400);
 function meter(){ if(!inAn) return; const a=new Float32Array(inAn.fftSize); inAn.getFloatTimeDomainData(a); let pk=0; for(const v of a) pk=Math.max(pk,Math.abs(v));
-  const m=document.getElementById("inputMeter"); if(m) m.value=Math.max(0,1+Math.log10(Math.max(1e-6,pk))/3); requestAnimationFrame(meter); }
+  const m=document.getElementById("inputMeter"); if(m) m.value=Math.max(0,1+Math.log10(Math.max(1e-6,pk))/3);
+  const now=performance.now(); meter.hold=Math.max(pk,(meter.hold||0)*(now-(meter.t||now)>600?0.9:1)); if(pk>=meter.hold) meter.t=now; if(pk>=0.989) meter.clipAt=now;
+  const o=document.getElementById("trimPk"); if(o){ const d=20*Math.log10(Math.max(1e-6,meter.hold)); o.textContent=d<-90?"-∞ dB":d.toFixed(1)+" dB"; }
+  const L=document.getElementById("clipLed"); if(L){ const on=now-(meter.clipAt||-1e9)<1500; L.classList.toggle("on",on); L.title=on?"Clipping: lower Trim":"No clipping"; }
+  window.__trimPeak=pk; requestAnimationFrame(meter); }
 function sliceFrames(f0, L){ const out=new Float32Array(L); let got=0; for(const c of recChunks){ const a=Math.max(f0,c.f), b=Math.min(f0+L,c.f+c.d.length); if(b>a){ out.set(c.d.subarray(a-c.f,b-c.f),a-f0); got+=b-a; } } return {out,got}; }
 function flushAudioPasses(force){ if(!audioPasses.length) return; const last=recChunks.length?recChunks[recChunks.length-1]:null, lastF=last?last.f+last.d.length:0;
   audioPasses=audioPasses.filter(({p,scope})=>{ const LSR=ctx.sampleRate, comp=inputComp(), f0=Math.round((p.time+comp)*LSR), L=Math.round((p.g1-p.g0)*p.sd*LSR);
@@ -941,10 +948,13 @@ ui.layer.addEventListener("change",()=>{ state.layer=ui.layer.checked; save(); }
 ui.midiTransport.addEventListener("change",()=>{ state.midiTransport=ui.midiTransport.checked; save(); });
 ui.midiIn.addEventListener("change",()=>{ state.midiIn=ui.midiIn.value; save(); refreshMidi(); });
 (()=>{ const $=id=>document.getElementById(id), it=$("inputType"), dv=$("inputDev"), tr=$("inputTrim"), mo=$("inputMon"), la=$("latAuto"), nu=$("latNudge");
-  it.value=state.inputType||"mic"; state.inputType=it.value; tr.value=state.inTrim||0; mo.checked=state.inputMon!==false; la.checked=state.latAuto!==false; nu.value=state.latNudge||0;
+  it.value=state.inputType||"mic"; state.inputType=it.value; tr.value=clampTrim(state.inTrim); { const o=$("trimVal"); if(o) o.value=o.textContent=(+tr.value>0?"+":"")+tr.value+" dB"; } mo.checked=state.inputMon!==false; la.checked=state.latAuto!==false; nu.value=state.latNudge||0;
   it.addEventListener("change",()=>{ state.inputType=it.value; save(); routeMonitor(); });
   dv.addEventListener("change",async()=>{ state.inputDev=dv.value; save(); if(inGain) $("inputBtn").click(), $("inputBtn").click(); });
-  tr.addEventListener("input",()=>{ state.inTrim=+tr.value; save(); if(inGain) inGain.gain.value=dbLin(state.inTrim); });
+  let trimSave=0; tr.addEventListener("input",()=>{ state.inTrim=clampTrim(tr.value); const o=$("trimVal"); if(o) o.textContent=(state.inTrim>0?"+":"")+state.inTrim+" dB";
+    /* smoothed gain only: no graph rebuild, no reconnect, no per-event setValueAtTime steps */
+    if(inGain&&ctx){ const g=inGain.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setTargetAtTime(dbLin(state.inTrim),t,0.02); }
+    clearTimeout(trimSave); trimSave=setTimeout(save,400); });
   mo.addEventListener("change",()=>{ setMonitor(mo.checked); save(); });
   const mc=$("micClean"); if(mc){ mc.checked=state.micClean===true; mc.addEventListener("change",()=>{ state.micClean=mc.checked; save(); }); }
   const rw=$("micRaw"); if(rw){ rw.checked=!!state.micRaw; rw.addEventListener("change",()=>{ state.micRaw=rw.checked; save(); setMonitor(state.inputMon); inputDiag(); }); }
