@@ -104,7 +104,7 @@ const DEFAULT = { bpm:92, keyRoot:9, chords:"Am F C G", groove:"porch", recipe:"
   mutes:{lead:false,play:false,piano:false,epiano:false,gtr:false,bass:false,pad:false,kit:false},
   gains:{lead:0.85,play:0.8,piano:0.4,epiano:0.42,gtr:0.38,bass:0.8,pad:0.2,kit:0.65},
   midiIn:"", midiOut:"", midiTransport:false, liveInst:"sing", inputMode:"play", liveOct:4, liveDb:0, bandDb:0, masterDb:0,
-  vocalPreset:"clean_pop", ampPreset:"edge", bassPreset:"bass_amp", vocal:null, amp:null, bassAmp:null, song:null };
+  vocalPreset:"natural", ampPreset:"edge", bassPreset:"bass_amp", vocal:null, amp:null, bassAmp:null, song:null };
 const state = Object.assign({}, DEFAULT, (()=>{ try{ return JSON.parse(localStorage.getItem(APP+"-v2")||"null") || {}; }catch(e){ return {}; } })());
 state.mutes = Object.assign({}, DEFAULT.mutes, state.mutes); state.gains = Object.assign({}, DEFAULT.gains, state.gains);
 if(!recipes.some(r=>r.id===state.recipe)) state.recipe="sixteenths";
@@ -114,7 +114,7 @@ if(!LIVE[state.liveInst]) state.liveInst="sing";
 if(!state.vocal) state.vocal=FX.clone(FX.VOCAL_PRESETS[state.vocalPreset]||FX.VOCAL_PRESETS.clean_pop);
 if(!state.amp) state.amp=FX.clone(FX.AMP_PRESETS[state.ampPreset]||FX.AMP_PRESETS.edge);
 if(!state.bassAmp) state.bassAmp=FX.clone(FX.AMP_PRESETS.bass_amp);
-if(state.inputMon==null) state.inputMon=true; state.gate=Object.assign({on:1,thr:-42,atk:2,hold:150,rel:180},state.gate||{});
+if(state.inputMon==null) state.inputMon=true; state.gate=Object.assign({on:1,thr:-45,atk:3,hold:200,rel:250},state.gate||{});
 const save = () => { try{ localStorage.setItem(APP+"-v2", JSON.stringify(state)); }catch(e){} };
 function parseChord(s){ const m=/^([A-G])(#|b)?(maj7|min|m7|m|7|dim|sus2|sus4)?$/.exec(String(s).trim()); if(!m) return null;
   return { root:pc(ROOT[m[1]]+(m[2]==="#"?1:m[2]==="b"?-1:0)), ivs:QUAL[m[3]||""], minor:/^m(?!aj)|^min|^dim/.test(m[3]||""), name:String(s).trim() }; }
@@ -339,9 +339,9 @@ function buildBus(c, gains, live){ const comp=makeComp(c), master=c.createGain()
   band.connect(master); you.connect(master); master.connect(user); user.connect(comp); comp.connect(lim); lim.connect(c.destination);
   for(const ch of CHAIRS){ const g=c.createGain(); g.gain.value=gains[ch.id]; g.connect(ch.you?you:band); chairs[ch.id]=g; }
   const mon=c.createGain(); mon.gain.value=LIVE_MAKEUP; mon.connect(you);
-  const inMon=c.createGain(); inMon.gain.value=dbLin(-6); inMon.connect(you); // mic/guitar monitor: NO live-sample makeup (that +7 dB on top of chain makeup made it squeal)
-  return {comp,master,chairs,band,you,user,lim,mon,inMon}; }
-function applyFaders(){ if(!bus) return; bus.you.gain.value=dbLin(state.liveDb); bus.band.gain.value=dbLin(state.bandDb); bus.user.gain.value=dbLin(state.masterDb); }
+  const inMon=c.createGain(), inMonF=c.createGain(); inMon.gain.value=dbLin(-6); inMon.connect(inMonF); inMonF.connect(lim); // mic/guitar monitor skips the master compressor (its lookahead delay and pumping against the band); same Your playing + Master faders, same final limiter // mic/guitar monitor: NO live-sample makeup (that +7 dB on top of chain makeup made it squeal)
+  return {comp,master,chairs,band,you,user,lim,mon,inMon,inMonF}; }
+function applyFaders(){ if(!bus) return; bus.you.gain.value=dbLin(state.liveDb); bus.band.gain.value=dbLin(state.bandDb); bus.user.gain.value=dbLin(state.masterDb); if(bus.inMonF) bus.inMonF.gain.value=dbLin(state.liveDb)*dbLin(state.masterDb); }
 // FX routing: each source (take / sketch) gets its own chain instance per context, keyed by its settings
 function fxRouter(c, b, bpm){ const cache=new Map();
   const fn=function dest(ev){ const base=b.chairs[ev.part]; if(!ev.fx || !ev.fx.cfg) return base;
@@ -669,42 +669,43 @@ async function connectInput(stream){
   if(!gateLoaded){ await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([NGATE_SRC],{type:"application/javascript"}))); gateLoaded=true; }
   inGate=new AudioWorkletNode(ctx,"wf-ngate",{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]}); inGate.port.onmessage=e=>{ gateOpen=e.data; window.__gateLog.push([performance.now(),gateOpen]); const el=document.getElementById("gateLed"); if(el){ el.classList.toggle("open",gateOpen); el.title=gateOpen?"Gate open":"Gate closed"; } }; applyGate();
   inSrc.connect(inGain); inGain.connect(inAn); inGain.connect(recNode); monGate=ctx.createGain(); monGate.gain.value=0; inGain.connect(inGate); inGate.connect(monGate);
-  monLim=ctx.createDynamicsCompressor(); monLim.threshold.value=-12; monLim.knee.value=0; monLim.ratio.value=20; monLim.attack.value=0.001; monLim.release.value=0.1;
+  monLim=ctx.createWaveShaper(); monLim.curve=(()=>{ const n=4097, k=new Float32Array(n), T=0.8; for(let i=0;i<n;i++){ const x=i/(n-1)*2-1, ax=Math.abs(x); k[i]=Math.sign(x)*(ax<=T?ax:T+(1-T)*Math.tanh((ax-T)/(1-T))); } return k; })(); // zero-latency soft ceiling (a compressor here added lookahead delay and auto makeup gain)
   monAn=ctx.createAnalyser(); monAn.fftSize=2048; monAn.smoothingTimeConstant=0; monGate.connect(monLim); monLim.connect(monAn); monKey=""; routeMonitor(); setMonitor(state.inputMon);
   paintInput(); requestAnimationFrame(meter); }
 function disconnectInput(keepNode){ if(inStream&&!keepNode) inStream.getTracks().forEach(t=>t.stop()); try{ inSrc&&inSrc.disconnect(); inGain&&inGain.disconnect(); monGate&&monGate.disconnect(); monAn&&monAn.disconnect(); inGate&&inGate.disconnect(); }catch(e){}
   if(!keepNode){ inStream=null; inSrc=null; inGain=null; } paintInput(); }
-function routeMonitor(){ if(!monGate||!ctx) return; const fx=liveChainCfg(state.inputType), k=state.inputType+JSON.stringify(fx); if(k===monKey) return; monKey=k;
-  try{ monAn.disconnect(); }catch(e){} monAn.connect(monDest(state.inputType)); }
+function routeMonitor(){ if(!monGate||!ctx) return; const fx=liveChainCfg(state.inputType), k=state.inputType+JSON.stringify(fx)+(state.monBypass?"|byp":"")+state.bpm; if(k===monKey) return; monKey=k;
+  try{ monAn.disconnect(); }catch(e){} const d=monDest(state.inputType); for(const [kk,c] of liveFx) if(kk.startsWith("mon|")&&c.input!==d){ try{ c.input.disconnect(); }catch(e){} liveFx.delete(kk); } monAn.connect(d); window.__monBuilds=(window.__monBuilds||0)+1; }
 // ---- monitoring: off by default, smooth ramps, limiter, and a feedback guard on the monitored signal ----
-let monLim=null, monAn=null, fbBad=0, fbLast=0, inGate=null, gateLoaded=false, gateOpen=false, duckUntil=0; window.__fb=[]; window.__gateLog=[];
+let monLim=null, monAn=null, fbBad=0, fbLast=0, inGate=null, gateLoaded=false, gateOpen=false, duckUntil=0, duckAt=-1e9, fbTrim=false; window.__fb=[]; window.__gateLog=[];
 // noise gate on the monitor send, before the chain: hysteresis, attack/hold/release, reports open/closed for the LED. Recording stays dry.
 const NGATE_SRC=`class NG extends AudioWorkletProcessor{ static get parameterDescriptors(){ return [{name:"thr",defaultValue:-42},{name:"atk",defaultValue:2},{name:"hold",defaultValue:150},{name:"rel",defaultValue:180},{name:"on",defaultValue:1}]; }
  constructor(){ super(); this.env=0; this.g=0; this.h=0; this.open=false; this.sent=null; }
- process(ins,outs,p){ const x=ins[0]&&ins[0][0], y=outs[0][0]; if(!x) return true; const on=p.on[0]>=0.5, thr=Math.pow(10,p.thr[0]/20), thrC=thr*0.6, a=1-Math.exp(-1/(sampleRate*Math.max(0.0001,p.atk[0]/1000))), r=1-Math.exp(-1/(sampleRate*Math.max(0.005,p.rel[0]/1000))), hold=p.hold[0]/1000*sampleRate, ea=1-Math.exp(-1/(sampleRate*0.0015)), er=1-Math.exp(-1/(sampleRate*0.04));
+ process(ins,outs,p){ const x=ins[0]&&ins[0][0], y=outs[0][0]; if(!x) return true; const on=p.on[0]>=0.5, thr=Math.pow(10,p.thr[0]/20), thrC=thr*0.5, a=1-Math.exp(-1/(sampleRate*Math.max(0.0001,p.atk[0]/1000))), r=1-Math.exp(-1/(sampleRate*Math.max(0.005,p.rel[0]/1000))), hold=p.hold[0]/1000*sampleRate, ea=1-Math.exp(-1/(sampleRate*0.0015)), er=1-Math.exp(-1/(sampleRate*0.08));
   for(let i=0;i<x.length;i++){ const v=Math.abs(x[i]); this.env+=(v>this.env?ea:er)*(v-this.env);
    if(!on){ this.open=true; } else if(this.env>thr){ this.open=true; this.h=hold; } else if(this.env<thrC){ if(this.h>0) this.h--; else this.open=false; }
-   const t=this.open?1:0; this.g+=(t>this.g?a:r)*(t-this.g); y[i]=x[i]*this.g; }
+   const t=this.open?1:0.01; this.g+=(t>this.g?a:r)*(t-this.g); y[i]=x[i]*this.g; }
   if(this.sent!==this.open){ this.sent=this.open; this.port.postMessage(this.open); } return true; } }
 registerProcessor("wf-ngate",NG);`;
 function applyGate(){ if(!inGate) return; const G=state.gate; for(const k of ["thr","atk","hold","rel"]) inGate.parameters.get(k).value=G[k]; inGate.parameters.get("on").value=G.on?1:0; }
 // the monitor runs the same chain the take will use, tamed for open speakers: comp makeup capped, short delay feedback, lighter reverb, amp level capped
-function monDest(inst){ const fx=liveChainCfg(inst); if(!fx) return bus.inMon; const cfg=FX.clone(fx.cfg);
-  if(fx.kind==="vocal"){ cfg.comp.makeup=Math.min(cfg.comp.makeup,3); cfg.delay.fb=Math.min(cfg.delay.fb,0.15); cfg.verb.send=Math.min(cfg.verb.send,0.15); }
+function monDest(inst){ const fx=liveChainCfg(inst); if(!fx||state.monBypass) return bus.inMon; const cfg=FX.clone(fx.cfg);
+  if(fx.kind==="vocal"){ cfg.comp.makeup=Math.min(cfg.comp.makeup,3); cfg.delay.on=0; cfg.deess.on=0; cfg.verb.send=Math.min(cfg.verb.send,0.12); cfg.sat.drive=Math.min(cfg.sat.drive,0.2); cfg.air.air=Math.min(cfg.air.air,1); cfg.air.pres=Math.min(cfg.air.pres,2); }
   else if(cfg.drive){ cfg.drive.level=Math.min(cfg.drive.level,0); }
   const key="mon|"+fx.kind+"|"+JSON.stringify(cfg)+"|"+state.bpm; let ch=liveFx.get(key); if(!ch){ ch=FX.build(ctx,fx.kind,cfg,state.bpm,bus.inMon); liveFx.set(key,ch); } return ch.input; }
-function setMonitor(on, why){ state.inputMon=!!on; const mo=document.getElementById("inputMon"), w=document.getElementById("monWarn"); if(mo) mo.checked=state.inputMon;
+function setMonitor(on, why){ state.inputMon=!!on; fbTrim=false; const mo=document.getElementById("inputMon"), w=document.getElementById("monWarn"); if(mo) mo.checked=state.inputMon;
   if(w){ w.hidden=!why; w.textContent=why||""; w.classList.toggle("bad",!!why); }
   if(monGate&&ctx){ const g=monGate.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value,t); if(state.inputMon) g.linearRampToValueAtTime(1,t+0.25); else g.linearRampToValueAtTime(0,t+0.01); }
   fbBad=0; fbLast=performance.now(); }
-function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now; if(!state.inputMon||!monAn||!ctx||now<duckUntil) { fbBad=0; return; }
+function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now; if(!state.inputMon||!monAn||!ctx||now<duckAt+1500) { fbBad=0; return; } 
   const td=new Float32Array(monAn.fftSize); monAn.getFloatTimeDomainData(td); let s=0; for(const v of td) s+=v*v; const rms=Math.sqrt(s/td.length);
   const fd=new Float32Array(monAn.frequencyBinCount); monAn.getFloatFrequencyData(fd); let pk=-Infinity, pi=0, tot=0; const P=new Float32Array(fd.length); for(let i=2;i<fd.length;i++){ const p=Math.pow(10,fd[i]/10); P[i]=p; tot+=p; if(fd[i]>pk){ pk=fd[i]; pi=i; } }
   let near=0; for(let i=Math.max(2,pi-3);i<=Math.min(fd.length-1,pi+3);i++) near+=P[i]; const crest=tot?near/tot:0; // share of energy in one narrow peak
-  const tone=rms>0.05&&crest>0.9, runaway=rms>0.35;
+  const stable=Math.abs(pi-(window.__fbPi||0))<=1; window.__fbPi=pi; const tone=rms>0.08&&crest>0.93&&stable, runaway=rms>0.5;
   fbBad = (tone||runaway) ? fbBad+dt : Math.max(0,fbBad-dt*0.5);
   window.__fb.push({rms:+rms.toFixed(4),crest:+crest.toFixed(3),bad:Math.round(fbBad)}); if(window.__fb.length>200) window.__fb.shift();
-  if(fbBad>200){ duckUntil=now+1500; fbBad=0; window.__fbMuted=(window.__fbMuted||0)+1; const g=monGate.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(0,t); g.setValueAtTime(0,t+1.2); g.linearRampToValueAtTime(1,t+1.5);
+  if(fbBad>300&&now<duckAt+30000){ fbBad=0; if(!fbTrim){ fbTrim=true; monGate.gain.setTargetAtTime(0.25,ctx.currentTime,0.05); const w=document.getElementById("monWarn"); if(w){ w.hidden=false; w.textContent="Feedback again: monitor held 12 dB lower. Turn it back up with Your playing once the mic is away from the speakers."; } } return; }
+  if(fbBad>300){ duckAt=now; fbTrim=false; fbBad=0; window.__fbMuted=(window.__fbMuted||0)+1; const g=monGate.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(0,t); g.setValueAtTime(0,t+1.2); g.linearRampToValueAtTime(1,t+1.5);
     const w=document.getElementById("monWarn"); if(w){ w.hidden=false; w.classList.add("bad"); w.textContent="Feedback caught: monitor ducked for a moment. Lower Trim or the Your playing fader, or turn the mic away from the speakers."; clearTimeout(w._t); w._t=setTimeout(()=>{ w.hidden=true; },6000); } } }
 setInterval(feedbackGuard,25);
 setInterval(()=>{ if(monGate) routeMonitor(); },400);
@@ -937,12 +938,13 @@ ui.midiIn.addEventListener("change",()=>{ state.midiIn=ui.midiIn.value; save(); 
   dv.addEventListener("change",async()=>{ state.inputDev=dv.value; save(); if(inGain) $("inputBtn").click(), $("inputBtn").click(); });
   tr.addEventListener("input",()=>{ state.inTrim=+tr.value; save(); if(inGain) inGain.gain.value=dbLin(state.inTrim); });
   mo.addEventListener("change",()=>{ setMonitor(mo.checked); save(); });
-  const mc=$("micClean"); if(mc){ mc.checked=state.micClean!==false; mc.addEventListener("change",()=>{ state.micClean=mc.checked; save(); }); }
+  const mc=$("micClean"); if(mc){ mc.checked=state.micClean===true; mc.addEventListener("change",()=>{ state.micClean=mc.checked; save(); }); }
+  const bp=$("monBypass"); if(bp){ bp.checked=!!state.monBypass; bp.addEventListener("change",()=>{ state.monBypass=bp.checked; save(); routeMonitor(); }); }
   for(const k of ["on","thr","atk","hold","rel"]){ const el=$("gate_"+k); if(!el) continue; const out=el.nextElementSibling; if(k==="on") el.checked=!!state.gate.on; else { el.value=state.gate[k]; if(out) out.textContent=el.value; }
     el.addEventListener("input",()=>{ state.gate[k]=k==="on"?(el.checked?1:0):+el.value; if(out&&k!=="on") out.textContent=el.value; applyGate(); save(); }); }
   la.addEventListener("change",()=>{ state.latAuto=la.checked; save(); paintInput(); }); nu.addEventListener("change",()=>{ state.latNudge=+nu.value||0; save(); paintInput(); });
   $("inputBtn").addEventListener("click",async()=>{ if(inGain){ disconnectInput(); return; }
-    try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:state.inputDev?{exact:state.inputDev}:undefined,...(()=>{ const cl=state.inputType==="mic"&&state.micClean!==false; return {echoCancellation:cl,noiseSuppression:cl,autoGainControl:cl}; })(),channelCount:1}});
+    try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:state.inputDev?{exact:state.inputDev}:undefined,...(()=>{ const cl=state.inputType==="mic"&&state.micClean===true; return {echoCancellation:cl,noiseSuppression:cl,autoGainControl:cl}; })(),channelCount:1}});
       await connectInput(s); listInputs(); }catch(e){ $("inputNote").textContent="Could not open the input: "+e.message; } });
   $("calBtn").addEventListener("click",()=>calibrateInput().catch(e=>setStatus(e.message)));
   listInputs(); audioLoad.then(()=>renderTakes()); })();
@@ -974,7 +976,7 @@ if(lic.valid&&lic.key) validateKey(lic.key,lic.instance).then(v=>{ lic.valid=v; 
 if(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)) document.querySelectorAll(".ios").forEach(e=>e.hidden=false);
 window.__wordfour = { setInputStream:s=>connectInput(s), calibrateInput, inputComp, audioPCM, get recChunks(){return recChunks;}, AIN, state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
   start:(m,f)=>start(m,f), stop, startRec, files, takes, undo, buildSong:(k)=>{ buildSong(k); songChanged(); }, resuggest:()=>{ snap(); resuggest(true); }, setLoop, FX, SONG, splitWord,
-  liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, monAn:()=>monAn, monGate:()=>monGate, setMonitor, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
+  liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, probes:()=>({input:inGain, gate:inGate, monitor_send:monAn, inMon:bus&&bus.inMon, you:bus&&bus.you, out:bus&&bus.lim}), fxChanged, monAn:()=>monAn, monGate:()=>monGate, setMonitor, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
   get undoDepth(){return undoStack.length;}, get sustain(){return sustain;}, get playing(){return playing;}, get mode(){return mode;}, get ctx(){return ctx;}, get missing(){return [...missing];}, get lic(){return lic;}, get bus(){return bus;} };
 syncInputs(); for(const id of Object.keys(FXP)) paintFx(id); renderKeys(); render(); licUI(); showLoad(); paintDock(); listOutputs();
 if(navigator.requestMIDIAccess) navigator.requestMIDIAccess().then(a=>{ midiAccess=a; a.onstatechange=refreshMidi; refreshMidi(); }).catch(()=>{ ui.midiNote.textContent="Web MIDI unavailable or blocked in this browser."; });

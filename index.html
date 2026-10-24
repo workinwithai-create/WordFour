@@ -63,12 +63,13 @@
       <meter id="inputMeter" min="0" max="1" value="0" title="Input level"></meter>
       <label>Trim <input type="range" id="inputTrim" min="-24" max="24" step="1" value="0" /></label>
       <label class="chk"><span><input type="checkbox" id="inputMon" checked /> Hear myself</span></label>
-      <label class="chk" title="Browser echo cancellation, noise suppression and auto gain. Mic only; guitar/bass inputs are always raw. Applies next time you press Connect."><span><input type="checkbox" id="micClean" checked /> Mic cleanup (echo cancel, noise, auto gain)</span></label>
+      <label class="chk" title="Browser echo cancellation, noise suppression and auto gain. Mic only; guitar/bass inputs are always raw. Applies next time you press Connect."><span><input type="checkbox" id="micClean" /> Browser mic cleanup (off = best with speakers)</span></label>
       <label class="chk"><span><input type="checkbox" id="latAuto" checked /> Auto latency</span></label>
       <button id="calBtn" type="button" title="Plays 8 clicks and listens for them on the input">Calibrate</button>
       <label>Nudge <input type="number" id="latNudge" min="-200" max="200" step="1" value="0" style="width:4.5em" /> ms</label>
     </div>
     <div class="row inputs gaterow" id="gateRow">
+      <label class="chk"><span><input type="checkbox" id="monBypass" /> Bypass vocal chain</span></label>
       <label class="chk"><span><input type="checkbox" id="gate_on" checked /> Noise gate</span></label>
       <span id="gateLed" class="gateled" title="Gate closed" aria-label="Gate open indicator"></span>
       <label>Threshold <input type="range" id="gate_thr" min="-80" max="-10" step="1" /><output></output> dB</label>

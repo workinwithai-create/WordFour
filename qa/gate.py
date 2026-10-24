@@ -23,7 +23,7 @@ async def main():
     await pg.evaluate(SETUP); await pg.wait_for_timeout(400)
     await pg.evaluate(SIG,{'kind':'noise','amp':0.003}); bleed=await pg.evaluate(LEVEL,800)   # ~ -55 dBFS RMS room/speaker bleed
     await pg.evaluate(SIG,{'kind':'voice','f':220,'amp':0.25}); voice=await pg.evaluate(LEVEL,600)
-    await pg.evaluate(SIG,{'kind':'noise','amp':0.003}); await pg.wait_for_timeout(700); after=await pg.evaluate(LEVEL,500)
+    await pg.evaluate(SIG,{'kind':'noise','amp':0.003}); await pg.wait_for_timeout(1200); after=await pg.evaluate(LEVEL,500)
     r['gate']={'bleed':bleed,'voice':voice,'bleed_after_phrase':after,'fb_ducks_during_voice':await pg.evaluate("()=>window.__fbMuted||0"),
       'pass':bleed['mon_rms_max']<1e-3 and not bleed['gate_led'] and voice['mon_rms_max']>0.02 and voice['gate_led'] and after['mon_rms_max']<1e-3 and not after['gate_led'] and not await pg.evaluate("()=>window.__fbMuted||0")}
     # gain staging: monitor send with the default vocal chain vs input level (bus.inMon -6 dB, no 2.2x live makeup, comp makeup capped at 3 dB)

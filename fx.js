@@ -28,6 +28,7 @@ const AMP_STAGES=[
 ];
 const S=(on,o)=>Object.assign({on},o);
 const VOCAL_PRESETS={
+ natural:{name:"Natural", hp:S(1,{freq:90}), eq:S(0,{freq:350,cut:-2}), comp:S(1,{thr:-18,ratio:2.5,makeup:3}), deess:S(1,{freq:6500,thr:-30}), air:S(1,{pres:0,air:1}), sat:S(0,{drive:0.1}), verb:S(1,{type:0,send:0.12,size:1.4}), delay:S(0,{beats:0.75,fb:0.2,send:0.1})},
  clean_pop:{name:"Clean Pop", hp:S(1,{freq:100}), eq:S(1,{freq:350,cut:-3}), comp:S(1,{thr:-20,ratio:4,makeup:6}), deess:S(1,{freq:6500,thr:-30}), air:S(1,{pres:2,air:4}), sat:S(0,{drive:0.1}), verb:S(1,{type:0,send:0.22,size:1.6}), delay:S(1,{beats:0.75,fb:0.25,send:0.12})},
  warm_rnb:{name:"Warm R&B", hp:S(1,{freq:80}), eq:S(1,{freq:450,cut:-2}), comp:S(1,{thr:-24,ratio:3,makeup:7}), deess:S(1,{freq:6000,thr:-32}), air:S(1,{pres:-1,air:2}), sat:S(1,{drive:0.25}), verb:S(1,{type:0,send:0.32,size:2.4}), delay:S(1,{beats:0.5,fb:0.3,send:0.15})},
  rock_grit:{name:"Rock Grit", hp:S(1,{freq:130}), eq:S(1,{freq:300,cut:-4}), comp:S(1,{thr:-28,ratio:8,makeup:10}), deess:S(1,{freq:7000,thr:-28}), air:S(1,{pres:5,air:1}), sat:S(1,{drive:0.65}), verb:S(1,{type:1,send:0.14,size:0.9}), delay:S(1,{beats:0.25,fb:0.15,send:0.1})},
