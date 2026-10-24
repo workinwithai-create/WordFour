@@ -4,7 +4,7 @@ from playwright.async_api import async_playwright
 URL=sys.argv[1]; OUT=sys.argv[2] if len(sys.argv)>2 else 'gate.json'
 LOADED="/seated (\\d+)\\/\\1/.test(document.getElementById('status').textContent)"
 SETUP="""async()=>{ const w=window.__wordfour, c=w.ctx; const d=c.createMediaStreamDestination(); const g=c.createGain(); g.gain.value=0; g.connect(d);
- window.__src={g,d,nodes:[]}; w.state.inputType='mic'; await w.setInputStream(d.stream); return true; }"""
+ window.__src={g,d,nodes:[]}; w.state.inputType='mic'; w.state.micRaw=false; await w.setInputStream(d.stream); return true; }"""
 # voice: 220 Hz sawtooth with vibrato (harmonic-rich, like a sung vowel); bleed: quiet noise; feedback: loud pure sine
 SIG="""(o)=>{ const w=window.__wordfour, c=w.ctx, S=window.__src; S.nodes.forEach(n=>{try{n.stop()}catch(e){}}); S.nodes=[];
  let n; if(o.kind==='noise'){ const b=c.createBuffer(1,c.sampleRate*2,c.sampleRate), x=b.getChannelData(0); for(let i=0;i<x.length;i++) x[i]=Math.random()*2-1; n=c.createBufferSource(); n.buffer=b; n.loop=true; }

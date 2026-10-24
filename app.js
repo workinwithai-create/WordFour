@@ -114,7 +114,7 @@ if(!LIVE[state.liveInst]) state.liveInst="sing";
 if(!state.vocal) state.vocal=FX.clone(FX.VOCAL_PRESETS[state.vocalPreset]||FX.VOCAL_PRESETS.clean_pop);
 if(!state.amp) state.amp=FX.clone(FX.AMP_PRESETS[state.ampPreset]||FX.AMP_PRESETS.edge);
 if(!state.bassAmp) state.bassAmp=FX.clone(FX.AMP_PRESETS.bass_amp);
-if(state.inputMon==null) state.inputMon=true; state.gate=Object.assign({on:1,thr:-45,atk:3,hold:200,rel:250},state.gate||{});
+if(state.inputMon==null) state.inputMon=true; if(state.micRaw==null) state.micRaw=true; state.gate=Object.assign({on:1,thr:-45,atk:3,hold:200,rel:250},state.gate||{});
 const save = () => { try{ localStorage.setItem(APP+"-v2", JSON.stringify(state)); }catch(e){} };
 function parseChord(s){ const m=/^([A-G])(#|b)?(maj7|min|m7|m|7|dim|sus2|sus4)?$/.exec(String(s).trim()); if(!m) return null;
   return { root:pc(ROOT[m[1]]+(m[2]==="#"?1:m[2]==="b"?-1:0)), ivs:QUAL[m[3]||""], minor:/^m(?!aj)|^min|^dim/.test(m[3]||""), name:String(s).trim() }; }
@@ -341,7 +341,7 @@ function buildBus(c, gains, live){ const comp=makeComp(c), master=c.createGain()
   const mon=c.createGain(); mon.gain.value=LIVE_MAKEUP; mon.connect(you);
   const inMon=c.createGain(), inMonF=c.createGain(); inMon.gain.value=dbLin(-6); inMon.connect(inMonF); inMonF.connect(lim); // mic/guitar monitor skips the master compressor (its lookahead delay and pumping against the band); same Your playing + Master faders, same final limiter // mic/guitar monitor: NO live-sample makeup (that +7 dB on top of chain makeup made it squeal)
   return {comp,master,chairs,band,you,user,lim,mon,inMon,inMonF}; }
-function applyFaders(){ if(!bus) return; bus.you.gain.value=dbLin(state.liveDb); bus.band.gain.value=dbLin(state.bandDb); bus.user.gain.value=dbLin(state.masterDb); if(bus.inMonF) bus.inMonF.gain.value=dbLin(state.liveDb)*dbLin(state.masterDb); }
+function applyFaders(){ if(!bus) return; bus.you.gain.value=dbLin(state.liveDb); bus.band.gain.value=dbLin(state.bandDb); bus.user.gain.value=dbLin(state.masterDb); if(bus.inMonF) bus.inMonF.gain.value=dbLin(state.liveDb)*dbLin(state.masterDb); if(typeof rawG!=="undefined"&&rawG&&state.inputMon&&state.micRaw){ rawG.gain.cancelScheduledValues(0); rawG.gain.value=dbLin(state.liveDb)*dbLin(state.masterDb); } }
 // FX routing: each source (take / sketch) gets its own chain instance per context, keyed by its settings
 function fxRouter(c, b, bpm){ const cache=new Map();
   const fn=function dest(ev){ const base=b.chairs[ev.part]; if(!ev.fx || !ev.fx.cfg) return base;
@@ -354,7 +354,7 @@ let ctx=null, bus=null, liveBufs=null, timerId=null, nextStepTime=0, g=0, playin
 let range={g0:0,g1:0}, pendingRange=null, passNo=0;
 const active=new Set(), stepLog=[]; window.__schedLog=[]; window.__monitorDesc={};
 async function ensureCtx(){
-  if(!ctx){ ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR}); bus=buildBus(ctx,state.gains,true); applyFaders(); applySink(); await FX.ready(ctx); }
+  if(!ctx){ const q=+new URLSearchParams(location.search).get("sr"); ctx=new (window.AudioContext||window.webkitAudioContext)(q?{sampleRate:q,latencyHint:"interactive"}:{latencyHint:"interactive"}); /* live context runs at the DEVICE rate: forcing 48 kHz on a 44.1 kHz mic/device resampled the mic (crackle, robotic). Exports render at 48 kHz offline. */ bus=buildBus(ctx,state.gains,true); applyFaders(); applySink(); await FX.ready(ctx); }
   await ctx.resume(); if(!liveBufs){ await loadAll; if(!missing.size) liveBufs=await decodeAll(ctx); }
 }
 function rangeFor(sel){ const tl=TL(); const s=sel>=0?tl.secs[sel]:null; return s?{g0:s.start*STEPS,g1:(s.start+s.bars)*STEPS}:{g0:0,g1:tl.total*STEPS}; }
@@ -663,21 +663,23 @@ function inputComp(){ // seconds between "the grid hit the speaker" and "the sou
 async function connectInput(stream){
   await ensureCtx(); disconnectInput(true); inStream=stream;
   if(!recNode){ const url=URL.createObjectURL(new Blob([REC_SRC],{type:"application/javascript"})); await ctx.audioWorklet.addModule(url); }
-  inSrc=ctx.createMediaStreamSource(stream); inGain=ctx.createGain(); inGain.gain.value=dbLin(state.inTrim||0); inAn=ctx.createAnalyser(); inAn.fftSize=1024;
+  inSrc=ctx.createMediaStreamSource(stream); inGain=ctx.createGain(); inGain.channelCount=1; inGain.channelCountMode="explicit"; inGain.channelInterpretation="speakers"; inGain.gain.value=dbLin(state.inTrim||0); /* stereo interface -> one mono signal (L+R)/2, never left-only */ inAn=ctx.createAnalyser(); inAn.fftSize=1024;
   recNode=recNode||new AudioWorkletNode(ctx,"wf-rec",{numberOfInputs:1,numberOfOutputs:1,channelCount:1,channelCountMode:"explicit"});
   recNode.port.onmessage=e=>recChunks.push(e.data); const sink=ctx.createGain(); sink.gain.value=0; recNode.connect(sink); sink.connect(ctx.destination);
   if(!gateLoaded){ await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([NGATE_SRC],{type:"application/javascript"}))); gateLoaded=true; }
   inGate=new AudioWorkletNode(ctx,"wf-ngate",{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]}); inGate.port.onmessage=e=>{ gateOpen=e.data; window.__gateLog.push([performance.now(),gateOpen]); const el=document.getElementById("gateLed"); if(el){ el.classList.toggle("open",gateOpen); el.title=gateOpen?"Gate open":"Gate closed"; } }; applyGate();
-  inSrc.connect(inGain); inGain.connect(inAn); inGain.connect(recNode); monGate=ctx.createGain(); monGate.gain.value=0; inGain.connect(inGate); inGate.connect(monGate);
+  inSrc.connect(inGain); inGain.connect(inAn); inGain.connect(recNode); monGate=ctx.createGain(); monGate.gain.value=0; inGate.connect(monGate);
+  rawG=ctx.createGain(); rawG.gain.value=0; inGain.connect(rawG); rawG.connect(ctx.destination); // Mic Raw: one gain node, mono to both speakers
+  if(!state.micRaw) inGain.connect(inGate);
   monLim=ctx.createWaveShaper(); monLim.curve=(()=>{ const n=4097, k=new Float32Array(n), T=0.8; for(let i=0;i<n;i++){ const x=i/(n-1)*2-1, ax=Math.abs(x); k[i]=Math.sign(x)*(ax<=T?ax:T+(1-T)*Math.tanh((ax-T)/(1-T))); } return k; })(); // zero-latency soft ceiling (a compressor here added lookahead delay and auto makeup gain)
   monAn=ctx.createAnalyser(); monAn.fftSize=2048; monAn.smoothingTimeConstant=0; monGate.connect(monLim); monLim.connect(monAn); monKey=""; routeMonitor(); setMonitor(state.inputMon);
   paintInput(); requestAnimationFrame(meter); }
-function disconnectInput(keepNode){ if(inStream&&!keepNode) inStream.getTracks().forEach(t=>t.stop()); try{ inSrc&&inSrc.disconnect(); inGain&&inGain.disconnect(); monGate&&monGate.disconnect(); monAn&&monAn.disconnect(); inGate&&inGate.disconnect(); }catch(e){}
+function disconnectInput(keepNode){ if(inStream&&!keepNode) inStream.getTracks().forEach(t=>t.stop()); try{ inSrc&&inSrc.disconnect(); inGain&&inGain.disconnect(); monGate&&monGate.disconnect(); monAn&&monAn.disconnect(); inGate&&inGate.disconnect(); rawG&&rawG.disconnect(); }catch(e){}
   if(!keepNode){ inStream=null; inSrc=null; inGain=null; } paintInput(); }
 function routeMonitor(){ if(!monGate||!ctx) return; const fx=liveChainCfg(state.inputType), k=state.inputType+JSON.stringify(fx)+(state.monBypass?"|byp":"")+state.bpm; if(k===monKey) return; monKey=k;
   try{ monAn.disconnect(); }catch(e){} const d=monDest(state.inputType); for(const [kk,c] of liveFx) if(kk.startsWith("mon|")&&c.input!==d){ try{ c.input.disconnect(); }catch(e){} liveFx.delete(kk); } monAn.connect(d); window.__monBuilds=(window.__monBuilds||0)+1; }
 // ---- monitoring: off by default, smooth ramps, limiter, and a feedback guard on the monitored signal ----
-let monLim=null, monAn=null, fbBad=0, fbLast=0, inGate=null, gateLoaded=false, gateOpen=false, duckUntil=0, duckAt=-1e9, fbTrim=false; window.__fb=[]; window.__gateLog=[];
+let rawG=null, monLim=null, monAn=null, fbBad=0, fbLast=0, inGate=null, gateLoaded=false, gateOpen=false, duckUntil=0, duckAt=-1e9, fbTrim=false; window.__fb=[]; window.__gateLog=[];
 // noise gate on the monitor send, before the chain: hysteresis, attack/hold/release, reports open/closed for the LED. Recording stays dry.
 const NGATE_SRC=`class NG extends AudioWorkletProcessor{ static get parameterDescriptors(){ return [{name:"thr",defaultValue:-42},{name:"atk",defaultValue:2},{name:"hold",defaultValue:150},{name:"rel",defaultValue:180},{name:"on",defaultValue:1}]; }
  constructor(){ super(); this.env=0; this.g=0; this.h=0; this.open=false; this.sent=null; }
@@ -695,9 +697,11 @@ function monDest(inst){ const fx=liveChainCfg(inst); if(!fx||state.monBypass) re
   const key="mon|"+fx.kind+"|"+JSON.stringify(cfg)+"|"+state.bpm; let ch=liveFx.get(key); if(!ch){ ch=FX.build(ctx,fx.kind,cfg,state.bpm,bus.inMon); liveFx.set(key,ch); } return ch.input; }
 function setMonitor(on, why){ state.inputMon=!!on; fbTrim=false; const mo=document.getElementById("inputMon"), w=document.getElementById("monWarn"); if(mo) mo.checked=state.inputMon;
   if(w){ w.hidden=!why; w.textContent=why||""; w.classList.toggle("bad",!!why); }
-  if(monGate&&ctx){ const g=monGate.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value,t); if(state.inputMon) g.linearRampToValueAtTime(1,t+0.25); else g.linearRampToValueAtTime(0,t+0.01); }
+  if(monGate&&ctx){ const t=ctx.currentTime, ramp=(g,v)=>{ g.cancelScheduledValues(t); g.setValueAtTime(g.value,t); g.linearRampToValueAtTime(v,t+(v>0?0.25:0.01)); };
+    ramp(monGate.gain, state.inputMon&&!state.micRaw?1:0); if(rawG) ramp(rawG.gain, state.inputMon&&state.micRaw?dbLin(state.liveDb)*dbLin(state.masterDb):0);
+    try{ inGain.disconnect(inGate); }catch(e){} if(!state.micRaw) inGain.connect(inGate); } // raw: gate/chain not even running
   fbBad=0; fbLast=performance.now(); }
-function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now; if(!state.inputMon||!monAn||!ctx||now<duckAt+1500) { fbBad=0; return; } 
+function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now; if(!state.inputMon||state.micRaw||!monAn||!ctx||now<duckAt+1500) { fbBad=0; return; } 
   const td=new Float32Array(monAn.fftSize); monAn.getFloatTimeDomainData(td); let s=0; for(const v of td) s+=v*v; const rms=Math.sqrt(s/td.length);
   const fd=new Float32Array(monAn.frequencyBinCount); monAn.getFloatFrequencyData(fd); let pk=-Infinity, pi=0, tot=0; const P=new Float32Array(fd.length); for(let i=2;i<fd.length;i++){ const p=Math.pow(10,fd[i]/10); P[i]=p; tot+=p; if(fd[i]>pk){ pk=fd[i]; pi=i; } }
   let near=0; for(let i=Math.max(2,pi-3);i<=Math.min(fd.length-1,pi+3);i++) near+=P[i]; const crest=tot?near/tot:0; // share of energy in one narrow peak
@@ -707,18 +711,20 @@ function feedbackGuard(){ const now=performance.now(), dt=now-fbLast; fbLast=now
   if(fbBad>300&&now<duckAt+30000){ fbBad=0; if(!fbTrim){ fbTrim=true; monGate.gain.setTargetAtTime(0.25,ctx.currentTime,0.05); const w=document.getElementById("monWarn"); if(w){ w.hidden=false; w.textContent="Feedback again: monitor held 12 dB lower. Turn it back up with Your playing once the mic is away from the speakers."; } } return; }
   if(fbBad>300){ duckAt=now; fbTrim=false; fbBad=0; window.__fbMuted=(window.__fbMuted||0)+1; const g=monGate.gain, t=ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(0,t); g.setValueAtTime(0,t+1.2); g.linearRampToValueAtTime(1,t+1.5);
     const w=document.getElementById("monWarn"); if(w){ w.hidden=false; w.classList.add("bad"); w.textContent="Feedback caught: monitor ducked for a moment. Lower Trim or the Your playing fader, or turn the mic away from the speakers."; clearTimeout(w._t); w._t=setTimeout(()=>{ w.hidden=true; },6000); } } }
-setInterval(feedbackGuard,25);
+setInterval(feedbackGuard,50);
 setInterval(()=>{ if(monGate) routeMonitor(); },400);
 function meter(){ if(!inAn) return; const a=new Float32Array(inAn.fftSize); inAn.getFloatTimeDomainData(a); let pk=0; for(const v of a) pk=Math.max(pk,Math.abs(v));
   const m=document.getElementById("inputMeter"); if(m) m.value=Math.max(0,1+Math.log10(Math.max(1e-6,pk))/3); requestAnimationFrame(meter); }
 function sliceFrames(f0, L){ const out=new Float32Array(L); let got=0; for(const c of recChunks){ const a=Math.max(f0,c.f), b=Math.min(f0+L,c.f+c.d.length); if(b>a){ out.set(c.d.subarray(a-c.f,b-c.f),a-f0); got+=b-a; } } return {out,got}; }
 function flushAudioPasses(force){ if(!audioPasses.length) return; const last=recChunks.length?recChunks[recChunks.length-1]:null, lastF=last?last.f+last.d.length:0;
-  audioPasses=audioPasses.filter(({p,scope})=>{ const comp=inputComp(), f0=Math.round((p.time+comp)*SR), L=Math.round((p.g1-p.g0)*p.sd*SR);
+  audioPasses=audioPasses.filter(({p,scope})=>{ const LSR=ctx.sampleRate, comp=inputComp(), f0=Math.round((p.time+comp)*LSR), L=Math.round((p.g1-p.g0)*p.sd*LSR);
     if(lastF<f0+L && !force) return true;
     const {out,got}=sliceFrames(f0,L); let pk=0; for(let i=0;i<L;i++) pk=Math.max(pk,Math.abs(out[i]));
-    if(got>SR*0.1 && pk>0.002){ const tk=addTake([],state.inputType,scope,"input"); if(tk){ tk.kind="audio"; tk.frames=L; tk.comp_ms=+(comp*1000).toFixed(2); tk.f0=f0; audioPCM.set(tk.id,out); idb("put",tk.id,out); saveTakes(); renderTakes(); } }
+    if(got>LSR*0.1 && pk>0.002){ const tk=addTake([],state.inputType,scope,"input"); if(tk){ tk.kind="audio"; tk.frames=Math.round(L*SR/LSR); tk.comp_ms=+(comp*1000).toFixed(2); tk.f0=f0; tk.liveRate=LSR;
+      to48k(out,LSR,tk.frames).then(pcm=>{ audioPCM.set(tk.id,pcm); idb("put",tk.id,pcm); saveTakes(); renderTakes(); }); saveTakes(); renderTakes(); } }
     return false; }); }
 const abufCache=new WeakMap();
+async function to48k(x, from, N){ if(from===SR) return x; const oc=new OfflineAudioContext(1,N,SR), b=oc.createBuffer(1,x.length,from); b.copyToChannel(x,0); const s=oc.createBufferSource(); s.buffer=b; s.connect(oc.destination); s.start(0); const r=await oc.startRendering(); return r.getChannelData(0).slice(0,N); }
 function scheduleAudioTakes(c, R, gg, rangeStart, time, sd, tl, track, _sel, onlyTake, dry, st){ st=st||state;
   for(const tk of takes){ if(tk.kind!=="audio") continue; if(onlyTake ? tk!==onlyTake : !audible(tk)) continue; const A=AIN[tk.inst]||AIN.mic; if(st.mutes[A.part]) continue;
     const pcm=audioPCM.get(tk.id); if(!pcm) continue; const sc=scopeStart(tk,tl); if(!sc||gg<sc.g0||gg>=sc.g0+sc.len) continue; if(gg!==sc.g0&&!rangeStart) continue;
@@ -731,13 +737,15 @@ async function calibrateInput(target){ // loop-back test: clicks out, find them 
   if(!inputArmed()) throw new Error("Connect an input first"); target=target||ctx.destination; const was=recChunks; recChunks=[]; recNode.port.postMessage(true);
   const t0=ctx.currentTime+0.3, gap=0.3, n=8; for(let k=0;k<n;k++){ const t=t0+k*gap, o=ctx.createOscillator(), gn=ctx.createGain(); o.frequency.value=1500; gn.gain.setValueAtTime(0,t); gn.gain.setValueAtTime(0.5,t); gn.gain.setValueAtTime(0,t+0.004); o.connect(gn); gn.connect(target); o.start(t); o.stop(t+0.01); }
   await new Promise(r=>setTimeout(r,(t0+n*gap+0.4-ctx.currentTime)*1000)); recNode.port.postMessage(false);
-  const lags=[]; for(let k=0;k<n;k++){ const f=Math.round((t0+k*gap)*SR), {out}=sliceFrames(f, Math.round(0.25*SR)); let pk=0; for(const v of out) pk=Math.max(pk,Math.abs(v)); if(pk<0.01) continue;
-    const i=out.findIndex(v=>Math.abs(v)>pk*0.5); if(i>=0) lags.push(i/SR); }
+  const lags=[]; for(let k=0;k<n;k++){ const LSR=ctx.sampleRate, f=Math.round((t0+k*gap)*LSR), {out}=sliceFrames(f, Math.round(0.25*LSR)); let pk=0; for(const v of out) pk=Math.max(pk,Math.abs(v)); if(pk<0.01) continue;
+    const i=out.findIndex(v=>Math.abs(v)>pk*0.5); if(i>=0) lags.push(i/LSR); }
   recChunks=was; if(lags.length<5){ setStatus("Calibration could not hear the clicks. Turn the speakers up or hold the mic near them, then try again."); return null; }
   lags.sort((a,b)=>a-b); const lag=lags[lags.length>>1], autoPart=inputComp()-(state.latNudge||0)/1000;
   state.latNudge=Math.round((lag-autoPart)*1000*10)/10; save(); const nu=document.getElementById("latNudge"); if(nu) nu.value=state.latNudge; paintInput();
   setStatus(`Calibrated: input arrives ${(lag*1000).toFixed(1)} ms late, takes are shifted back by that much.`); return lag; }
-function paintInput(){ const b=document.getElementById("inputBtn"), n=document.getElementById("inputNote"); if(!b) return;
+function inputDiag(){ const el=document.getElementById("inputDiag"); if(!el) return; if(!ctx){ el.textContent="Input diagnostics: audio not started."; return; } const tr=inStream&&inStream.getAudioTracks()[0], s=tr&&tr.getSettings?tr.getSettings():{};
+  const f=v=>v==null?"?":v; el.textContent=`Input diagnostics: context ${ctx.sampleRate} Hz · track ${tr?f(s.sampleRate)+" Hz, "+f(s.channelCount)+" ch, echoCancellation "+f(s.echoCancellation)+", noiseSuppression "+f(s.noiseSuppression)+", autoGainControl "+f(s.autoGainControl)+(s.latency!=null?", latency "+(s.latency*1000).toFixed(1)+" ms":""):"not connected"} · baseLatency ${((ctx.baseLatency||0)*1000).toFixed(1)} ms · outputLatency ${((ctx.outputLatency||0)*1000).toFixed(1)} ms · path ${state.micRaw?"Mic Raw":"processed"}`; window.__diag=el.textContent; }
+function paintInput(){ setTimeout(inputDiag,0); const b=document.getElementById("inputBtn"), n=document.getElementById("inputNote"); if(!b) return;
   b.textContent = inGain ? "Disconnect input" : "Connect input"; n.textContent = inGain ? `Input connected (${(inStream&&inStream.getAudioTracks()[0]||{}).label||"device"}). ● Record now also records it. Alignment offset ${(inputComp()*1000).toFixed(1)} ms.` : "Not connected. WordFour only uses your mic or interface after you press Connect."; }
 async function listInputs(){ const sel=document.getElementById("inputDev"); if(!sel) return; let devs=[]; try{ devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput"); }catch(e){}
   sel.innerHTML='<option value="">Default input</option>'+devs.filter(d=>d.deviceId&&d.deviceId!=="default").map((d,i)=>`<option value="${esc(d.deviceId)}">${esc(d.label||"Input "+(i+1))}</option>`).join(""); sel.value=state.inputDev&&devs.some(d=>d.deviceId===state.inputDev)?state.inputDev:""; }
@@ -939,12 +947,13 @@ ui.midiIn.addEventListener("change",()=>{ state.midiIn=ui.midiIn.value; save(); 
   tr.addEventListener("input",()=>{ state.inTrim=+tr.value; save(); if(inGain) inGain.gain.value=dbLin(state.inTrim); });
   mo.addEventListener("change",()=>{ setMonitor(mo.checked); save(); });
   const mc=$("micClean"); if(mc){ mc.checked=state.micClean===true; mc.addEventListener("change",()=>{ state.micClean=mc.checked; save(); }); }
+  const rw=$("micRaw"); if(rw){ rw.checked=!!state.micRaw; rw.addEventListener("change",()=>{ state.micRaw=rw.checked; save(); setMonitor(state.inputMon); inputDiag(); }); }
   const bp=$("monBypass"); if(bp){ bp.checked=!!state.monBypass; bp.addEventListener("change",()=>{ state.monBypass=bp.checked; save(); routeMonitor(); }); }
   for(const k of ["on","thr","atk","hold","rel"]){ const el=$("gate_"+k); if(!el) continue; const out=el.nextElementSibling; if(k==="on") el.checked=!!state.gate.on; else { el.value=state.gate[k]; if(out) out.textContent=el.value; }
     el.addEventListener("input",()=>{ state.gate[k]=k==="on"?(el.checked?1:0):+el.value; if(out&&k!=="on") out.textContent=el.value; applyGate(); save(); }); }
   la.addEventListener("change",()=>{ state.latAuto=la.checked; save(); paintInput(); }); nu.addEventListener("change",()=>{ state.latNudge=+nu.value||0; save(); paintInput(); });
   $("inputBtn").addEventListener("click",async()=>{ if(inGain){ disconnectInput(); return; }
-    try{ const s=await navigator.mediaDevices.getUserMedia({audio:{deviceId:state.inputDev?{exact:state.inputDev}:undefined,...(()=>{ const cl=state.inputType==="mic"&&state.micClean===true; return {echoCancellation:cl,noiseSuppression:cl,autoGainControl:cl}; })(),channelCount:1}});
+    try{ const s=await navigator.mediaDevices.getUserMedia({audio:Object.assign(state.inputDev?{deviceId:{exact:state.inputDev}}:{}, (()=>{ const cl=state.inputType==="mic"&&state.micClean===true; return {echoCancellation:cl,noiseSuppression:cl,autoGainControl:cl}; })())}); // nothing forced: no sampleRate, channelCount or latency
       await connectInput(s); listInputs(); }catch(e){ $("inputNote").textContent="Could not open the input: "+e.message; } });
   $("calBtn").addEventListener("click",()=>calibrateInput().catch(e=>setStatus(e.message)));
   listInputs(); audioLoad.then(()=>renderTakes()); })();
@@ -976,7 +985,7 @@ if(lic.valid&&lic.key) validateKey(lic.key,lic.instance).then(v=>{ lic.valid=v; 
 if(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)) document.querySelectorAll(".ios").forEach(e=>e.hidden=false);
 window.__wordfour = { setInputStream:s=>connectInput(s), calibrateInput, inputComp, audioPCM, get recChunks(){return recChunks;}, AIN, state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
   start:(m,f)=>start(m,f), stop, startRec, files, takes, undo, buildSong:(k)=>{ buildSong(k); songChanged(); }, resuggest:()=>{ snap(); resuggest(true); }, setLoop, FX, SONG, splitWord,
-  liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, probes:()=>({input:inGain, gate:inGate, monitor_send:monAn, inMon:bus&&bus.inMon, you:bus&&bus.you, out:bus&&bus.lim}), fxChanged, monAn:()=>monAn, monGate:()=>monGate, setMonitor, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
+  liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, rawG:()=>rawG, inputDiag, probes:()=>({input:inGain, gate:inGate, monitor_send:monAn, inMon:bus&&bus.inMon, you:bus&&bus.you, out:bus&&bus.lim}), fxChanged, monAn:()=>monAn, monGate:()=>monGate, setMonitor, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
   get undoDepth(){return undoStack.length;}, get sustain(){return sustain;}, get playing(){return playing;}, get mode(){return mode;}, get ctx(){return ctx;}, get missing(){return [...missing];}, get lic(){return lic;}, get bus(){return bus;} };
 syncInputs(); for(const id of Object.keys(FXP)) paintFx(id); renderKeys(); render(); licUI(); showLoad(); paintDock(); listOutputs();
 if(navigator.requestMIDIAccess) navigator.requestMIDIAccess().then(a=>{ midiAccess=a; a.onstatechange=refreshMidi; refreshMidi(); }).catch(()=>{ ui.midiNote.textContent="Web MIDI unavailable or blocked in this browser."; });

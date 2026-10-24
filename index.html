@@ -69,6 +69,7 @@
       <label>Nudge <input type="number" id="latNudge" min="-200" max="200" step="1" value="0" style="width:4.5em" /> ms</label>
     </div>
     <div class="row inputs gaterow" id="gateRow">
+      <label class="chk"><span><input type="checkbox" id="micRaw" checked /> <b>Mic Raw</b> (straight to speakers: no gate, no chain)</span></label>
       <label class="chk"><span><input type="checkbox" id="monBypass" /> Bypass vocal chain</span></label>
       <label class="chk"><span><input type="checkbox" id="gate_on" checked /> Noise gate</span></label>
       <span id="gateLed" class="gateled" title="Gate closed" aria-label="Gate open indicator"></span>
@@ -77,6 +78,7 @@
       <label>Hold <input type="range" id="gate_hold" min="0" max="600" step="10" /><output></output> ms</label>
       <label>Release <input type="range" id="gate_rel" min="20" max="800" step="10" /><output></output> ms</label>
     </div>
+    <small id="inputDiag" class="status diag">Input diagnostics: audio not started.</small>
     <p id="monWarn" class="monwarn" hidden role="alert"></p>
     <small id="inputNote" class="status">Not connected. WordFour only uses your mic or interface after you press Connect.</small>
     </div>

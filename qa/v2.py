@@ -172,7 +172,7 @@ async def main():
     fx['spectrum_level_pass']=abs(fx['vocal_clean_pop']['hf_ratio_proc']-fx['vocal_clean_pop']['hf_ratio_dry'])>0.01 and abs(fx['guitar_high_gain_after_rec']['hf_ratio']-fx['guitar_clean_jazz']['hf_ratio'])>0.02 and fx['guitar_high_gain_after_rec']['crest']<fx['guitar_clean_jazz']['crest']
     fx['preset_after_rec_pass']=fx['vocal_radio_after_rec']['diff_vs_before_dB']>-40 and fx['guitar_high_gain_after_rec']['diff_vs_before_dB']>-40 and fx['dry_stems_unchanged']
     # live == offline: the same chain (same code, same settings) on the running AudioContext vs an OfflineAudioContext, same input
-    lo=await pg.evaluate("""async()=>{const w=window.__wordfour, FX=w.FX, ac=w.ctx, SR=48000, N=SR*2, out={};
+    lo=await pg.evaluate("""async()=>{const w=window.__wordfour, FX=w.FX, ac=w.ctx, SR=ac.sampleRate, N=SR*2, out={};
       const sig=c=>{const b=c.createBuffer(1,N,SR), d=b.getChannelData(0); let s=1; for(let i=0;i<N;i++){ s=(s*16807)%2147483647; const env=Math.exp(-((i%12000)/3000)); d[i]=0.4*env*Math.sin(2*Math.PI*(220+440*((i%12000)/12000))*i/SR)+0.02*env*((s/2147483647)*2-1);} return b;};
       for(const [kind,cfg] of [['vocal',FX.VOCAL_PRESETS.warm_rnb],['amp',FX.AMP_PRESETS.crunch]]){
         const oc=new OfflineAudioContext(2,N,SR); await FX.ready(oc); const ch=FX.build(oc,kind,cfg,92,oc.destination); const s=oc.createBufferSource(); s.buffer=sig(oc); s.connect(ch.input); s.start(0);
