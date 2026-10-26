@@ -155,10 +155,12 @@ function lineSyls(lines){ const out=[]; lines.forEach((ln,li)=>{ for(const raw o
 
 // ---------- the song: sections from the lyric, arrangement suggestions, timeline ----------
 const mainNames = () => (state.chords.trim().split(/[\s,|]+/));
-function buildSong(keepLocks){ const det=SONG.detect(state.lyrics); const prev=keepLocks&&state.song?state.song.sections:null;
+let sunoMeta={bpm:null,keyRoot:null,keyName:"",skipped:[],tags:0,ended:false};
+function buildSong(keepLocks){ const det=SONG.detect(state.lyrics,{adlibs:!!state.sunoAdlibs}); sunoMeta=det.meta||sunoMeta; const prev=keepLocks&&state.song?state.song.sections:null;
   const secs=SONG.suggest(det.length?det:[{type:"verse",label:"Verse 1",lines:[],why:"No lyric yet: one instrumental verse."}], mainNames(), prev);
   state.song={sections:secs}; state.structEdited=false; }
 if(!state.song||!Array.isArray(state.song.sections)||!state.song.sections.length) buildSong(false);
+else sunoMeta=SONG.detect(state.lyrics,{adlibs:!!state.sunoAdlibs}).meta||sunoMeta;
 let tlCache={key:null};
 function TL(song){ song=song||state.song; const key=JSON.stringify([song,state.keyRoot,state.chords]); if(tlCache.key===key) return tlCache.v;
   const secs=[], bars=[]; let bar=0, gsyl=0;
@@ -760,7 +762,7 @@ async function listInputs(){ const sel=document.getElementById("inputDev"); if(!
 // ---------- UI ----------
 const ui={}; ["audioOut","audioOutNote","bpm","key","chords","chordErr","recClick","layer","lyrics","shape","sketchBtn","nextSyl","karaoke","timeline","songInfo","why","editor","editToggle",
   "resuggest","undoBtn","rebuild","loopSel","midiIn","midiOut","midiNote","midiTransport","liveInst","miniKeys","octDn","octUp","octLbl","liveHint","volLive","volBand","volMaster",
-  "licKey","licBtn","tap","tapBtn","takes","takeInfo","stemsDry","vocalFx","ampFx","bassFx"].forEach(id=>ui[id]=document.getElementById(id));
+  "licKey","licBtn","sunoInfo","sunoUse","sunoAdlibs","tap","tapBtn","takes","takeInfo","stemsDry","vocalFx","ampFx","bassFx"].forEach(id=>ui[id]=document.getElementById(id));
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 ui.key.innerHTML=NAMES.map((n,i)=>`<option value="${i}">${n}</option>`).join("");
 ui.shape.innerHTML=SHAPES.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
@@ -857,11 +859,11 @@ document.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&!e.shiftKey&
 // ---- lyric + karaoke ----
 let lyrTimer=null;
 ui.lyrics.addEventListener("input",()=>{ state.lyrics=ui.lyrics.value.slice(0,6000); save(); clearTimeout(lyrTimer);
-  lyrTimer=setTimeout(()=>{ if(state.structEdited){ setStatus("Lyric changed. You edited the structure by hand, so press “Find sections again” to re-detect."); return; } snap(); buildSong(true); selSec=Math.min(selSec,state.song.sections.length-1); wordCursor=0; songChanged(); },500); });
+  lyrTimer=setTimeout(()=>{ sunoMeta=SONG.detect(state.lyrics,{adlibs:!!state.sunoAdlibs}).meta||sunoMeta; paintSuno(); if(state.structEdited){ setStatus("Lyric changed. You edited the structure by hand, so press “Find sections again” to re-detect."); return; } snap(); buildSong(true); selSec=Math.min(selSec,state.song.sections.length-1); wordCursor=0; songChanged(); },500); });
 ui.shape.addEventListener("change",()=>{ state.shape=ui.shape.value; save(); srcCache.key=null; lmCache.key=null; });
 let lastK=-2;
 function paintKaraoke(){ const tl=TL(), s=tl.secs[selSec]||tl.secs[0]; if(!s){ ui.karaoke.innerHTML=""; return; }
-  ui.karaoke.innerHTML=`<div class="ksec">${esc(s.label)}</div>`+(s.nlines?Array.from({length:s.nlines},(_,li)=>`<div class="kl">${s.syl.filter(x=>x.line===li).map(x=>`<span class="kw${x.strong?" st":""}" data-g="${x.g}">${esc(x.text)}</span>`).join(" ")}</div>`).join(""):"<div class=kl><i>instrumental</i></div>"); lastK=-2; }
+  ui.karaoke.innerHTML=`<div class="ksec">${esc(s.label)}</div>`+((s.lines||[]).length?Array.from({length:s.nlines},(_,li)=>`<div class="kl">${s.syl.filter(x=>x.line===li).map(x=>`<span class="kw${x.strong?" st":""}" data-g="${x.g}">${esc(x.text)}</span>`).join(" ")}</div>`).join(""):"<div class=kl><i>instrumental</i></div>"); lastK=-2; }
 function kSing(gi){ if(gi==null||gi<0) return; const tl=TL(), sy=tl.syl[gi]; if(sy&&sy.sec!==selSec&&!state.editOpen){ selSec=sy.sec; paintKaraoke(); }
   document.querySelectorAll(".kw.now").forEach(x=>x.classList.remove("now")); const el=document.querySelector(`.kw[data-g="${gi}"]`); if(el) el.classList.add("now"); }
 function karaokeAt(pos){ if(pos<0) return; const lm=leadMap(state,TL(),mode==="rec",null); let best=-1;
@@ -939,7 +941,29 @@ ui.octUp.onclick=()=>{ state.liveOct=Math.min(6,state.liveOct+1); save(); render
 [["volLive","liveDb"],["volBand","bandDb"],["volMaster","masterDb"]].forEach(([id,k])=>ui[id].addEventListener("input",()=>{ state[k]=+ui[id].value; ui[id].nextElementSibling.textContent=(state[k]>0?"+":"")+state[k]+" dB"; applyFaders(); save(); }));
 function paintDock(){ for(const [id,m] of [["playA","band"],["playB","full"]]){ const b=document.getElementById(id); if(b) b.classList.toggle("on",playing&&mode===m); }
   for(const id of ["recBtn","recBtn2"]){ const b=document.getElementById(id); if(b){ b.classList.toggle("recording",mode==="rec"); b.textContent=mode==="rec"?"■ Stop rec":"● Record"; } } }
-function render(){ updateHint(true); paintGrooves(); paintRecipes(); paintChairs(); paintTimeline(); paintEditor(); paintKaraoke(); renderTakes(); }
+// ---- Suno lyric paste: what was read, what was skipped, and an opt-in BPM/key from the style line (your settings stay first) ----
+function paintSuno(){ const m=sunoMeta||{}, sk=m.skipped||[], parts=[];
+  if(m.tags) parts.push(`Read ${m.tags} [tag]${m.tags>1?"s":""} into ${(state.song&&state.song.sections.length)||0} sections`);
+  const kinds={}; sk.forEach(x=>{ (kinds[x.why]=kinds[x.why]||[]).push(x.text); });
+  const order=["ad-lib (backing vocal)","production note","sound/production note","style/meta line","end of song","after the end tag"];
+  const sk2=Object.keys(kinds).sort((a,b)=>order.indexOf(a)-order.indexOf(b)).map(k=>`${k}: ${kinds[k].slice(0,4).map(t=>"“"+t+"”").join(" ")}${kinds[k].length>4?` +${kinds[k].length-4}`:""}`);
+  if(sk2.length) parts.push("Not sung · "+sk2.join(" · "));
+  ui.sunoInfo.textContent = parts.length ? parts.join(". ")+"." : "Paste straight from Suno: [Verse]/[Chorus]/[Bridge] tags, [Guitar Solo] or [Instrumental Break] become instrumental sections, and production notes are skipped.";
+  ui.sunoAdlibs.checked=!!state.sunoAdlibs;
+  const wantBpm = m.bpm!=null ? Math.max(60,Math.min(180,m.bpm)) : null, wantKey = m.keyRoot;
+  const diff = (wantBpm!=null && wantBpm!==state.bpm) || (wantKey!=null && wantKey!==state.keyRoot);
+  ui.sunoUse.hidden=!diff;
+  if(diff) ui.sunoUse.textContent="Use "+[wantBpm!=null?wantBpm+" BPM":"", wantKey!=null?"key "+NAMES[wantKey]:""].filter(Boolean).join(" · ")+" from your Suno style";
+}
+ui.sunoUse.onclick=()=>{ if(mode==="rec") return; const m=sunoMeta||{}; snap();
+  if(m.bpm!=null) state.bpm=Math.max(60,Math.min(180,m.bpm)); if(m.keyRoot!=null) state.keyRoot=m.keyRoot;
+  save(); syncInputs(); render(); paintSuno();
+  const sunoMinor=/minor/.test(m.keyName||""), sunoMajor=/major/.test(m.keyName||""), mismatch=(sunoMinor&&!prog[0].minor)||(sunoMajor&&prog[0].minor);
+  setStatus(`Using ${state.bpm} BPM, key ${keyLabel()} from your Suno style line.`+(mismatch?` Suno says ${m.keyName}; your chords (${state.chords}) stay as you wrote them, so change the chords if you want ${sunoMinor?"minor":"major"}.`:"")+" Change either any time."); };
+ui.sunoAdlibs.addEventListener("change",()=>{ state.sunoAdlibs=ui.sunoAdlibs.checked; save(); sunoMeta=SONG.detect(state.lyrics,{adlibs:!!state.sunoAdlibs}).meta||sunoMeta; paintSuno();
+  if(state.structEdited){ setStatus("Ad-lib setting changed. You edited the structure by hand, so press “Find sections again” to apply it."); return; }
+  snap(); buildSong(true); selSec=Math.min(selSec,state.song.sections.length-1); wordCursor=0; songChanged(); });
+function render(){ updateHint(true); paintSuno(); paintGrooves(); paintRecipes(); paintChairs(); paintTimeline(); paintEditor(); paintKaraoke(); renderTakes(); }
 ui.bpm.addEventListener("change",()=>{ const v=Math.round(+ui.bpm.value); if(!(v>=60&&v<=180)||mode==="rec"){ ui.bpm.value=state.bpm; return; } state.bpm=v; save(); render(); });
 ui.key.addEventListener("change",()=>{ state.keyRoot=+ui.key.value; save(); render(); });
 ui.chords.addEventListener("change",onChords);
@@ -993,7 +1017,7 @@ document.getElementById("licOff").onclick=async()=>{ if(lic.key&&lic.instance&&c
 { const buy=document.getElementById("buy"); if(LEMON.checkoutUrl){ buy.href=LEMON.checkoutUrl; buy.textContent="Buy WordFour · "+LEMON.price; } else { buy.removeAttribute("href"); buy.setAttribute("aria-disabled","true"); buy.textContent="Checkout opening soon · "+LEMON.price; } }
 if(lic.valid&&lic.key) validateKey(lic.key,lic.instance).then(v=>{ lic.valid=v; lic.checked=Date.now(); saveLic(); licUI(); }).catch(()=>{});
 if(/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)) document.querySelectorAll(".ios").forEach(e=>e.hidden=false);
-window.__wordfour = { setInputStream:s=>connectInput(s), calibrateInput, inputComp, audioPCM, get recChunks(){return recChunks;}, AIN, state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
+window.__wordfour = { get sunoMeta(){ return sunoMeta; }, setInputStream:s=>connectInput(s), calibrateInput, inputComp, audioPCM, get recChunks(){return recChunks;}, AIN, state, TL:()=>TL(), stepEvents, takeNotes, sources:(all)=>sources(state,TL(),false,!!all), addTake, exportWavBytes, exportMidBytes, exportStemsBytes, exportSheetBytes, renderSong, loadAll,
   start:(m,f)=>start(m,f), stop, startRec, files, takes, undo, buildSong:(k)=>{ buildSong(k); songChanged(); }, resuggest:()=>{ snap(); resuggest(true); }, setLoop, FX, SONG, splitWord,
   liveOn, liveOff, setSustain, voices:liveVoices, tpos:()=>ctx&&transportPos(ctx.currentTime), monTap:()=>bus&&bus.mon, rawG:()=>rawG, inputDiag, probes:()=>({input:inGain, gate:inGate, monitor_send:monAn, inMon:bus&&bus.inMon, you:bus&&bus.you, out:bus&&bus.lim}), fxChanged, monAn:()=>monAn, monGate:()=>monGate, setMonitor, render, save, saveTakes, renderTakes, select:i=>{ selSec=i; paintTimeline(); paintEditor(); paintKaraoke(); },
   get undoDepth(){return undoStack.length;}, get sustain(){return sustain;}, get playing(){return playing;}, get mode(){return mode;}, get ctx(){return ctx;}, get missing(){return [...missing];}, get lic(){return lic;}, get bus(){return bus;} };

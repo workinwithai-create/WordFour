@@ -1,0 +1,328 @@
+[
+ {
+  "name": "default lyric",
+  "text": "I keep the porch light on\nfor you to-night\nthe road is long and the night is cold\n\nand every mile I wait for you\ncounting the cars that pass me by\n\nso come on home\ncome on home to me\nso come on home\nI'll be wait-ing up\n\nthe kettle hums the clock is slow\nI read your letters by the door\n\nand every mile I wait for you\ncounting the cars that pass me by\n\nso come on home\ncome on home to me\nso come on home\nI'll be wait-ing up\n\nmaybe the light was never for you\nmaybe I left it on for me\n\nso come on home\ncome on home to me\nso come on home\nI'll be wait-ing up\n\nleave the light on",
+  "expect": [
+   {
+    "type": "verse",
+    "label": "Verse 1",
+    "lines": [
+     "I keep the porch light on",
+     "for you to-night",
+     "the road is long and the night is cold"
+    ],
+    "why": "New lines before any repeat: a verse."
+   },
+   {
+    "type": "pre",
+    "label": "Pre-chorus 1",
+    "lines": [
+     "and every mile I wait for you",
+     "counting the cars that pass me by"
+    ],
+    "why": "These lines come back right before every chorus: a pre-chorus."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 1",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I'll be wait-ing up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "verse",
+    "label": "Verse 2",
+    "lines": [
+     "the kettle hums the clock is slow",
+     "I read your letters by the door"
+    ],
+    "why": "New lines after a chorus: the next verse."
+   },
+   {
+    "type": "pre",
+    "label": "Pre-chorus 2",
+    "lines": [
+     "and every mile I wait for you",
+     "counting the cars that pass me by"
+    ],
+    "why": "These lines come back right before every chorus: a pre-chorus."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 2",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I'll be wait-ing up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "bridge",
+    "label": "Bridge",
+    "lines": [
+     "maybe the light was never for you",
+     "maybe I left it on for me"
+    ],
+    "why": "New lines after two choruses, heading back to the hook: a bridge."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 3",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I'll be wait-ing up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "outro",
+    "label": "Outro",
+    "lines": [
+     "leave the light on"
+    ],
+    "why": "Short last block after a chorus, so it ends the song."
+   }
+  ]
+ },
+ {
+  "name": "qa sample",
+  "text": "I keep the porch light on\nfor you tonight\nthe road is long and the night is cold\n\nand every mile I wait for you\ncounting the cars that pass me by\noh come home, come home\n\nso come on home\ncome on home to me\nso come on home\nI will be waiting up\n\nthe kettle hums the clock is slow\nI read your letters by the door\nthe moon is out the dog is old\n\nand every mile I wait for you\ncounting the cars that pass me by\n\nso come on home\ncome on home to me\nso come on home\nI will be waiting up\n\nmaybe the light was never for you\nmaybe I left it on for me\n\nso come on home\ncome on home to me\nso come on home\nI will be waiting up\n\nleave the light on\n",
+  "expect": [
+   {
+    "type": "verse",
+    "label": "Verse 1",
+    "lines": [
+     "I keep the porch light on",
+     "for you tonight",
+     "the road is long and the night is cold"
+    ],
+    "why": "New lines before any repeat: a verse."
+   },
+   {
+    "type": "pre",
+    "label": "Pre-chorus 1",
+    "lines": [
+     "and every mile I wait for you",
+     "counting the cars that pass me by",
+     "oh come home, come home"
+    ],
+    "why": "These lines come back right before every chorus: a pre-chorus."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 1",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I will be waiting up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "verse",
+    "label": "Verse 2",
+    "lines": [
+     "the kettle hums the clock is slow",
+     "I read your letters by the door",
+     "the moon is out the dog is old"
+    ],
+    "why": "New lines after a chorus: the next verse."
+   },
+   {
+    "type": "pre",
+    "label": "Pre-chorus 2",
+    "lines": [
+     "and every mile I wait for you",
+     "counting the cars that pass me by"
+    ],
+    "why": "These lines come back right before every chorus: a pre-chorus."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 2",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I will be waiting up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "bridge",
+    "label": "Bridge",
+    "lines": [
+     "maybe the light was never for you",
+     "maybe I left it on for me"
+    ],
+    "why": "New lines after two choruses, heading back to the hook: a bridge."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 3",
+    "lines": [
+     "so come on home",
+     "come on home to me",
+     "so come on home",
+     "I will be waiting up"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "outro",
+    "label": "Outro",
+    "lines": [
+     "leave the light on"
+    ],
+    "why": "Short last block after a chorus, so it ends the song."
+   }
+  ]
+ },
+ {
+  "name": "unlabelled repeats",
+  "text": "a b c\nd e f\n\nchorus line\nchorus two\n\nverse two\nmore\n\nchorus line\nchorus two\n\nbridge here\n\nchorus line\nchorus two",
+  "expect": [
+   {
+    "type": "verse",
+    "label": "Verse 1",
+    "lines": [
+     "a b c",
+     "d e f"
+    ],
+    "why": "New lines before any repeat: a verse."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 1",
+    "lines": [
+     "chorus line",
+     "chorus two"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "verse",
+    "label": "Verse 2",
+    "lines": [
+     "verse two",
+     "more"
+    ],
+    "why": "New lines after a chorus: the next verse."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 2",
+    "lines": [
+     "chorus line",
+     "chorus two"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   },
+   {
+    "type": "bridge",
+    "label": "Bridge",
+    "lines": [
+     "bridge here"
+    ],
+    "why": "New lines after two choruses, heading back to the hook: a bridge."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 3",
+    "lines": [
+     "chorus line",
+     "chorus two"
+    ],
+    "why": "These lines come back 3 times in the song, so this is the hook."
+   }
+  ]
+ },
+ {
+  "name": "labelled mixed",
+  "text": "[Verse]\nOne two\nthree four\n\n[Chorus]\nhey hey\nho ho\n\n[Verse 2]\nfive six\n\n[Chorus]\n\n(Bridge)\nlast one\nVerse 3:\nyo",
+  "expect": [
+   {
+    "type": "verse",
+    "label": "Verse 1",
+    "lines": [
+     "One two",
+     "three four"
+    ],
+    "why": "Labelled “[Verse]” in your lyric."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 1",
+    "lines": [
+     "hey hey",
+     "ho ho"
+    ],
+    "why": "Labelled “[Chorus]” in your lyric."
+   },
+   {
+    "type": "verse",
+    "label": "Verse 2",
+    "lines": [
+     "five six"
+    ],
+    "why": "Labelled “[Verse 2]” in your lyric."
+   },
+   {
+    "type": "chorus",
+    "label": "Chorus 2",
+    "lines": [
+     "hey hey",
+     "ho ho"
+    ],
+    "why": "Labelled “[Chorus]” in your lyric. Repeats the earlier chorus."
+   },
+   {
+    "type": "bridge",
+    "label": "Bridge",
+    "lines": [
+     "last one"
+    ],
+    "why": "Labelled “(Bridge)” in your lyric."
+   },
+   {
+    "type": "verse",
+    "label": "Verse 3",
+    "lines": [
+     "yo"
+    ],
+    "why": "Labelled “Verse 3:” in your lyric."
+   }
+  ]
+ },
+ {
+  "name": "bare words labels",
+  "text": "Chorus\nla la\n\nOutro\nbye",
+  "expect": [
+   {
+    "type": "chorus",
+    "label": "Chorus 1",
+    "lines": [
+     "la la"
+    ],
+    "why": "Labelled “Chorus” in your lyric."
+   },
+   {
+    "type": "outro",
+    "label": "Outro",
+    "lines": [
+     "bye"
+    ],
+    "why": "Labelled “Outro” in your lyric."
+   }
+  ]
+ }
+]

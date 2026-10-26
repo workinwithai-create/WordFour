@@ -4,5 +4,8 @@
   "private": true,
   "description": "WordFour: you have the words, play the melody. Static browser desk.",
   "license": "MIT",
-  "scripts": { "build": "mkdir -p dist && cp index.html app.js fx.js song.js styles.css dist/" }
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html app.js fx.js song.js styles.css dist/",
+    "test": "node qa/suno_unit.js"
+  }
 }
