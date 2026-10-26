@@ -772,7 +772,7 @@ let selSec=0;
 const undoStack=[];
 function snap(){ undoStack.push(JSON.stringify({song:state.song,structEdited:state.structEdited})); if(undoStack.length>60) undoStack.shift(); ui.undoBtn.disabled=false; }
 function undo(){ const s=undoStack.pop(); if(!s) return false; const o=JSON.parse(s); state.song=o.song; state.structEdited=o.structEdited; selSec=Math.min(selSec,state.song.sections.length-1); songChanged(); ui.undoBtn.disabled=!undoStack.length; setStatus("Undone."); return true; }
-function songChanged(){ srcCache.key=null; lmCache.key=null; save(); if(state.loopSec>=state.song.sections.length) state.loopSec=-1; if(playing) pendingRange=rangeFor(state.loopSec); paintTimeline(); paintEditor(); paintKaraoke(); }
+function songChanged(){ srcCache.key=null; lmCache.key=null; save(); if(typeof paintSuno==="function"&&ui.sunoInfo) paintSuno(); if(state.loopSec>=state.song.sections.length) state.loopSec=-1; if(playing) pendingRange=rangeFor(state.loopSec); paintTimeline(); paintEditor(); paintKaraoke(); }
 function syncInputs(){ ui.bpm.value=state.bpm; ui.key.value=state.keyRoot; ui.chords.value=state.chords; ui.recClick.checked=state.recClick; ui.layer.checked=state.layer; ui.shape.value=state.shape;
   ui.liveInst.value=state.liveInst; ui.midiTransport.checked=state.midiTransport; ui.stemsDry.checked=state.stemsDry; if(document.activeElement!==ui.lyrics) ui.lyrics.value=state.lyrics;
   [["volLive","liveDb"],["volBand","bandDb"],["volMaster","masterDb"]].forEach(([id,k])=>{ ui[id].value=state[k]; ui[id].nextElementSibling.textContent=(state[k]>0?"+":"")+state[k]+" dB"; }); }
@@ -943,7 +943,7 @@ function paintDock(){ for(const [id,m] of [["playA","band"],["playB","full"]]){ 
   for(const id of ["recBtn","recBtn2"]){ const b=document.getElementById(id); if(b){ b.classList.toggle("recording",mode==="rec"); b.textContent=mode==="rec"?"■ Stop rec":"● Record"; } } }
 // ---- Suno lyric paste: what was read, what was skipped, and an opt-in BPM/key from the style line (your settings stay first) ----
 function paintSuno(){ const m=sunoMeta||{}, sk=m.skipped||[], parts=[];
-  if(m.tags) parts.push(`Read ${m.tags} [tag]${m.tags>1?"s":""} into ${(state.song&&state.song.sections.length)||0} sections`);
+  if(m.tags){ const n=(state.song&&state.song.sections.length)||0; parts.push(`Read ${m.tags} tag${m.tags>1?"s":""} → ${n} section${n>1?"s":""}`); }
   const kinds={}; sk.forEach(x=>{ (kinds[x.why]=kinds[x.why]||[]).push(x.text); });
   const order=["ad-lib (backing vocal)","production note","sound/production note","style/meta line","end of song","after the end tag"];
   const sk2=Object.keys(kinds).sort((a,b)=>order.indexOf(a)-order.indexOf(b)).map(k=>`${k}: ${kinds[k].slice(0,4).map(t=>"“"+t+"”").join(" ")}${kinds[k].length>4?` +${kinds[k].length-4}`:""}`);

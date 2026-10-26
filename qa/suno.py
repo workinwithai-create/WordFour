@@ -60,7 +60,7 @@ async def main():
     await pg.click('#sunoUse'); await pg.wait_for_timeout(150)
     after=await pg.evaluate("()=>({status:document.getElementById('status').textContent,bpm:window.__wordfour.state.bpm,key:window.__wordfour.state.keyRoot,ui:+document.getElementById('bpm').value,uiKey:+document.getElementById('key').value,hidden:document.getElementById('sunoUse').hidden})")
     res['style_line']={'info':info,'button':btn,'before':before,'after':after,
-      'pass':(not btn['hidden']) and btn['text']=='Use 104 BPM · key D from your Suno style' and before=={'bpm':92,'key':9} and {k:after[k] for k in ('bpm','key','ui','uiKey','hidden')}=={'bpm':104,'key':2,'ui':104,'uiKey':2,'hidden':True} and 'Suno says D major' in after['status'] and 'Read ' in info and 'Not sung' in info and '(yeah, yeah)' in info and '[Male Vocal]' in info}
+      'pass':'Read 13 tags → 11 sections' in info and (not btn['hidden']) and btn['text']=='Use 104 BPM · key D from your Suno style' and before=={'bpm':92,'key':9} and {k:after[k] for k in ('bpm','key','ui','uiKey','hidden')}=={'bpm':104,'key':2,'ui':104,'uiKey':2,'hidden':True} and 'Suno says D major' in after['status'] and 'Read ' in info and 'Not sung' in info and '(yeah, yeah)' in info and '[Male Vocal]' in info}
     # ad-lib toggle (opt-in)
     await pg.check('#sunoAdlibs'); await pg.wait_for_timeout(200); on=await pg.evaluate("()=>window.__wordfour.TL().secs[1].lines")
     await pg.uncheck('#sunoAdlibs'); await pg.wait_for_timeout(200); off=await pg.evaluate("()=>window.__wordfour.TL().secs[1].lines")
@@ -110,15 +110,15 @@ async def main():
     res['mobile']={}
     for name in ['iPhone 13','Pixel 7']:
       c=await br.new_context(**p.devices[name]); m=await c.new_page(); merr=[]; m.on('pageerror',lambda e:merr.append(str(e)))
-      await m.goto(URL); tapgate=await m.is_visible('#tapBtn'); await m.tap('#tapBtn'); await m.wait_for_function(LOADED,timeout=120000)
+      await m.goto(URL); tapgate=await m.is_visible('#tapBtn'); ios=await m.is_visible('#tap .ios'); await m.tap('#tapBtn'); await m.wait_for_function(LOADED,timeout=120000)
       await m.fill('#lyrics',VALLEY); await m.dispatch_event('#lyrics','input'); await m.wait_for_function("()=>window.__wordfour.TL().secs.length===11",timeout=10000); await m.wait_for_timeout(200)
       await m.evaluate("()=>document.getElementById('sunoUse').scrollIntoView({block:'center'})"); await m.wait_for_timeout(150); await m.screenshot(path=f"{SHOTS}/mobile-{name.replace(' ','-')}-suno.png")
       ov=await m.evaluate("()=>document.documentElement.scrollWidth-document.documentElement.clientWidth")
       bw=await m.evaluate("()=>{const r=document.getElementById('sunoUse').getBoundingClientRect(); return [Math.round(r.left),Math.round(r.right),window.innerWidth]}")
       await m.tap('#sunoUse'); await m.wait_for_timeout(150); st2=await m.evaluate("()=>[window.__wordfour.state.bpm,window.__wordfour.state.keyRoot,window.__wordfour.ctx&&window.__wordfour.ctx.state]")
-      ios=await m.evaluate("()=>{const e=[...document.querySelectorAll('*')].find(x=>/silent switch/i.test(x.textContent)&&x.children.length===0); return !!e && e.offsetParent!==null}")
-      res['mobile'][name]={'tap_gate':tapgate,'overflow_px':ov,'button_box':bw,'after_tap':st2,'ios_note_visible':ios,'errors':merr,
-        'pass':tapgate and ov<=0 and bw[0]>=0 and bw[1]<=bw[2] and st2[0]==104 and st2[1]==2 and st2[2]=='running' and not merr}
+      info=await m.text_content('#sunoInfo')
+      res['mobile'][name]={'tap_gate':tapgate,'overflow_px':ov,'button_box':bw,'after_tap':st2,'ios_note_on_tap_gate':ios,'suno_info':info,'errors':merr,
+        'pass':tapgate and ov<=0 and bw[0]>=0 and bw[1]<=bw[2] and st2[0]==104 and st2[1]==2 and st2[2]=='running' and not merr and ios==(name.startswith('iPhone')) and 'Read 13 tags → 11 sections' in info}
       await c.close()
     await br.close()
   res['all_pass']=all(v.get('pass') for k,v in res.items() if isinstance(v,dict) and 'pass' in v) and all(v['pass'] for v in res['mobile'].values()) and not res['console_errors']
